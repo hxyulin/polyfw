@@ -69,6 +69,28 @@ Native include support and polyfw's reported target/CPU can therefore disagree r
 of cwd. Fixing discovery context alone does not establish resolver parity.
 [Pinned loader](https://github.com/taiki-e/cargo-config2/blob/v0.1.45/src/de.rs#L131-L184)
 
+## Members outside the workspace directory
+
+Workspace membership and configuration ancestry are independent. Cargo documents
+`package.workspace` for a member outside its workspace's directory tree. A temporary
+Cargo 1.100 fixture verified this through polyfw's existing Cargo runner: a workspace at
+`workspace/` listed `../packages/led-demo`, and that package declared
+`workspace = "../../workspace"`. Ordinary and detailed `info` succeeded. Removing the
+package's explicit workspace pointer produced the diagnostic that the member was not
+hierarchically below the workspace root. This probe established membership handling,
+not config or compiler selection.
+[External member ownership](https://doc.rust-lang.org/cargo/reference/workspaces.html#the-members-and-exclude-fields)
+
+For such a member, package-cwd invocation still uses the workspace lockfile and manifest
+profiles. Its config and rustup searches follow the package's physical ancestors; they do
+not jump to the declared workspace. Thus `workspace/.cargo/config.toml` and
+`workspace/rust-toolchain.toml` are not inherited merely through membership. Shared settings
+need a shared ancestor or an explicit supported reference. Owner-root invocation chooses
+the workspace's configuration ancestry instead. An external path dependency is a separate
+case: it need not be a member and may have a different owning workspace.
+[Cargo configuration ancestry](https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure),
+[Rustup ancestry](https://rust-lang.github.io/rustup/overrides.html)
+
 ## Product alternatives
 
 | Policy | Benefit | Cost or unresolved branch |
@@ -76,6 +98,13 @@ of cwd. Fixing discovery context alone does not establish resolver parity.
 | A. Owning-workspace cwd everywhere | Preserves current grouping and compiler/config convention | Member configs and pins remain ignored; manifest-based registration still needs owner discovery |
 | B. Firmware package cwd for build/MCU lint and matching probes/metadata | Matches manual Cargo invocation inside that firmware; supports member settings | Host checks must separately choose owner grouping or package contexts; firmware contexts cannot merge solely by workspace |
 | C. Explicit configurable cwd | Supports unusual layouts | Adds another identity, validation and grouping dimension; can disconnect manifest, configuration and compiler selection |
+
+**Revised recommendation, pending a user decision:** retain owning-workspace cwd for
+Cargo operations. External members then use the same workspace configuration ancestry
+and compiler pin as internal members, while Platform overrides express firmware target/CPU
+differences. This preserves existing check grouping and avoids adding an invocation-directory
+setting or a directory-dependent fallback. Member-cwd remains the alternative when honoring
+member-local configuration is more important than a shared workspace environment.
 
 Caller cwd sacrifices invocation-location independence. Fixed project-root cwd is deterministic
 but gives unrelated external packages the project's Cargo configuration and toolchain context.
