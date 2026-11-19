@@ -5,6 +5,9 @@ polyfw is an installed host CLI that operates on independently configured firmwa
 observable command behavior. This document explains the boundaries that keep those operations
 consistent as the implementation changes.
 
+The accepted release-linked configuration compatibility decision is recorded in
+[ADR 0001](adr/0001-release-linked-configuration-compatibility.md).
+
 ## Ownership and boundaries
 
 | Owner | Responsibility |
@@ -45,6 +48,80 @@ Cargo validation counts every declared binary, independently of required feature
 An omitted `bin` is inferred into `resolved_bin` for artifact lookup; it remains omitted from build
 arguments. Different packages sharing a BSP cannot produce the same binary name because their
 ELF paths would collide.
+
+## Configuration compatibility (planned)
+
+This is an accepted design awaiting implementation. The current configuration model does not
+yet accept these declarations. Terms are defined in the [glossary](../GLOSSARY.md).
+
+Require two top-level declarations using full polyfw release versions, including any
+prerelease suffix. For example, a hypothetical configuration could declare:
+
+```toml
+config-version = "0.3.0"
+min-polyfw-version = "0.2.0"
+```
+
+`config-version` identifies the release whose configuration contract the file follows.
+`min-polyfw-version` identifies the oldest CLI expected to interpret and execute that file
+correctly. Neither changes merely because another CLI is installed or run.
+
+Each CLI takes its own version from `Cargo.toml` and declares the oldest configuration contract
+it accepts. Compare versions by SemVer precedence and require all three conditions:
+
+```text
+min-polyfw-version <= config-version
+CLI.oldest-supported-config-version <= config-version
+min-polyfw-version <= CLI.version
+```
+
+A configuration contract newer than the CLI is allowed when its minimum CLI declaration
+permits that CLI and the configuration passes the remaining validation. These declarations
+express a compatibility promise; they do not replace structural or semantic validation.
+
+Within configuration loading, first parse valid TOML and read the version declarations without
+deserializing the rest into the strict configuration model. Check the declarations before
+rejecting unknown fields, resolving Cargo, writing selection/editor state or starting hardware
+actions. After the gate succeeds, perform the existing strict parsing and validation. Preserve
+the [command loading boundaries](#load-only-the-context-a-command-needs), including the lighter
+selection-clearing and reset paths.
+
+Missing declarations, invalid versions, inconsistent declarations and incompatible versions
+are hard errors. Report the file, relevant declared versions, current CLI and applicable
+compatibility floor, with guidance to change CLI or manually migrate the configuration. Do not
+infer a version for existing files or suggest that changing a version string alone migrates
+their contents. There is no automatic migration or bypass.
+
+Maintain the compatibility floors according to the change, independently of release numbering:
+
+| Change | Policy |
+| --- | --- |
+| No configuration contract change | Keep both compatibility floors and existing configuration declarations unchanged |
+| Add a field or capability | Configurations using it adopt an appropriate contract version and minimum CLI; retain the CLI's existing configuration floor when old configurations still work |
+| Remove fields or change meanings/defaults so old configurations no longer retain their meaning | Raise the CLI's configuration floor; also raise the recommended minimum CLI when older CLIs cannot correctly execute the new contract |
+
+Each release provides conservative authoring guidance for its minimum required CLI. Do not
+build a per-field version registry or automatically infer a file's minimum CLI. Retain old
+support only while the current implementation handles it with its original meaning; raise the
+floor when support would require old-field aliases, old-default branches or separate parsers.
+The first release implementing the declarations establishes the initial compatibility
+baseline; CLIs predating the declarations cannot read the new fields.
+
+Pin the editor's remote `#:schema` URL to the release identified by `config-version`, even when
+a newer CLI operates on that configuration. The comment remains editor-only: runtime checks
+neither interpret it nor fetch a schema. `polyfw schema` continues to emit its own executable's
+model without loading a project; for a local schema, use the executable corresponding to the
+declared configuration contract. Keep the existing per-release Schema `$id` convention.
+
+Verification must cover acceptance at compatibility boundaries, rejection below them, newer
+CLIs reading retained older contracts, and older CLIs accepting or rejecting newer contracts
+according to their minimum CLI declarations. Check required/invalid declarations, diagnostic
+priority over unknown fields, actual configuration behavior and the existing command loading
+boundaries. Representative fixtures must substantiate retained compatibility; there is no
+promise to support every historical release indefinitely.
+
+When implementing this design, update the public [configuration guide](configuration.md),
+model-generated Schema and [release preparation](releasing.md#prepare-a-version) together.
 
 ## Workspace and compiler isolation
 
