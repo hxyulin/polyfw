@@ -1,8 +1,25 @@
 # polyfw
 
-Language for the relationship between the installed CLI and a consuming project's configuration.
+The language for firmware projects managed by polyfw.
 
 ## Language
+
+**Firmware**:
+A named software entry associated with one platform, for which it can be built and programmed.
+Development and release builds are builds of the same firmware.
+_Avoid_: Board (when referring to a software entry).
+
+**Platform**:
+A named hardware environment for which firmware is built and programmed. It can represent
+a board model or an MCU type and can be shared by firmware from different workspaces.
+_Avoid_: BSP, target (when referring to a platform).
+
+**Board**:
+Physical hardware on which firmware runs. The same board can run different firmwares.
+
+**Workspace**:
+A Cargo workspace containing packages used by registered firmware. A workspace may
+contain firmware for different hardware.
 
 **Configuration compatibility**:
 The ability of a particular polyfw CLI release to interpret a `polyfw.toml` configuration
