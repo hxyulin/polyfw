@@ -30,6 +30,10 @@ other Rust tooling. This lets those tools read shared Cargo inputs without intro
 custom editor check commands, and accepts Cargo's native precedence instead of forcing
 platform CPU settings above environment flags.
 
+Editor support provides the selected firmware's MCU analysis view. Host tests remain
+explicit host-target CLI operations; do not add a host editor mode or automatic
+host-versus-MCU analysis switching for test code.
+
 Each firmware must ultimately resolve to one explicit compilation target. If the platform
 does not specify one, Cargo must provide exactly one; missing or multiple defaults are
 errors. An explicit platform target overrides those defaults. An explicit `host-tuple`
