@@ -24,5 +24,3 @@ toml = "1.1"
 
 [profile.dev]
 debug = 0
-
-[workspace]
