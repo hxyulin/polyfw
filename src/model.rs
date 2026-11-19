@@ -13,7 +13,11 @@ const REGISTRY_NAME_PATTERN: &str = "^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "polyfw registry", extend(
-    "$id" = "https://raw.githubusercontent.com/inaku-Gyan/polyfw/main/polyfw.schema.json"
+    "$id" = concat!(
+        "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v",
+        env!("CARGO_PKG_VERSION"),
+        "/polyfw.schema.json"
+    )
 ))]
 pub(crate) struct Registry {
     /// Optional tool settings; omitted values keep their defaults.

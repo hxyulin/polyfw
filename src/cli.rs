@@ -217,6 +217,7 @@ impl RttChannelMode {
 pub(crate) enum Task {
     /// Print or write JSON Schema for this version's polyfw.toml.
     ///
+    /// Its $id points to the exact package version's Git tag, including prerelease suffixes.
     /// Works without a project, Rust installation or hardware tools.
     Schema {
         /// Write to FILE instead of stdout; relative paths start at the current directory.

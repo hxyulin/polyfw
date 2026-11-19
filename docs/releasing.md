@@ -8,8 +8,8 @@ GitHub Actions publishes the crate through OIDC and completes the GitHub Release
 
 [The release workflow](../.github/workflows/release.yml) runs these stages:
 
-1. Validate the tag's SemVer, its match with `Cargo.toml`, the triggering source commit and that
-   commit's ancestry on `main`.
+1. Validate the tag's SemVer, its match with `Cargo.toml` and the committed schema's `$id`,
+   the triggering source commit and that commit's ancestry on `main`.
 2. Run reusable CI, verify the packaged crate, and build/smoke-test all five binary targets.
 3. Upload archives and `SHA256SUMS` to a GitHub draft release.
 4. Publish to crates.io through OIDC, or verify an identical version already published there.
@@ -45,8 +45,12 @@ fixtures need `thumbv7em-none-eabihf`, and release tests need Node.js 18 or newe
 
 1. Update `[package].version` in `Cargo.toml`. Use a full stable version or a SemVer prerelease,
    for example `0.2.0-rc.1` or `0.2.0-beta.1`.
-2. Run `cargo check` to update the root package entry in `Cargo.lock`. Review that diff; an
-   ordinary version bump does not require dependency upgrades or a new Rust pin.
+2. Run `cargo check` to update the root package entry in `Cargo.lock`, then `just schema` to
+   regenerate `polyfw.schema.json`. Its `$id` must be
+   `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/polyfw.schema.json`, including
+   any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-board)
+   to the same version. Review the diffs; an ordinary version bump does not require dependency
+   upgrades or a new Rust pin. CI rejects a stale schema or example link.
 3. Run the checks and inspect the published package contents:
 
    ```sh
@@ -62,8 +66,8 @@ fixtures need `thumbv7em-none-eabihf`, and release tests need Node.js 18 or newe
    Package exclusions in `Cargo.toml` keep agent instructions, detailed guides, release automation
    and local distribution output out of the crate. Source, README, license, embedded schema and
    Rust tests remain included.
-4. Commit the manifest, lockfile and accompanying changes, then merge them into `main` through
-   the normal review process.
+4. Commit the manifest, lockfile, generated schema and accompanying changes, then merge them
+   into `main` through the normal review process.
 
 ## Push the tag
 
@@ -103,7 +107,8 @@ installation commands are in [README](../README.md#install).
 
 Linux containers preserve a glibc 2.17 baseline; JavaScript actions run on the newer Ubuntu host
 outside the container. Each built executable must report the expected `--version`, provide
-`--help` and emit valid JSON for `schema`. These smoke tests need no firmware project or hardware.
+`--help` and emit a schema equal to the committed `polyfw.schema.json`, with the tag's version in
+its `$id`. These smoke tests need no firmware project or hardware.
 The full Rust suite runs on Linux through reusable CI; the five-platform binary matrix does not
 claim physical probe/debugger validation.
 
@@ -111,7 +116,9 @@ Archives are named `polyfw-<target>.tar.gz` or `polyfw-<target>.zip`. Each conta
 `polyfw-<target>/` holding `polyfw` (Windows: `polyfw.exe`), `README.md` and `LICENSE`.
 The tag selects the version. Binstall metadata in `Cargo.toml` specifies this URL and executable
 layout. Detailed guides and the schema file are not bundled in the binary archive; README links
-to online guides, and the executable can generate its matching schema.
+to online guides, and the executable can generate its matching schema. Editors can also fetch
+that schema directly from its fixed `$id` URL at the release tag. Preserve existing tags so
+older versions keep their original schema link; no separate Schema version is maintained.
 
 Download `SHA256SUMS` beside the desired archive, then verify before extracting:
 

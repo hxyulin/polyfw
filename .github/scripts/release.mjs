@@ -66,6 +66,13 @@ export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export const archiveName = target => `polyfw-${target}.${target.includes('windows') ? 'zip' : 'tar.gz'}`;
 const archiveNames = () => targets.map(({ target }) => archiveName(target)).sort();
 
+function readSchema(root, version) {
+  const schema = JSON.parse(fs.readFileSync(path.join(root, 'polyfw.schema.json'), 'utf8'));
+  assert.equal(schema.$id, `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v${version}/polyfw.schema.json`,
+    'Schema $id differs from the package version; run just schema');
+  return schema;
+}
+
 export function validateTag(root, tag, expectedCommit) {
   root = fs.realpathSync(root);
   assert(tag.startsWith('v'), 'Release tags must start with v');
@@ -75,6 +82,7 @@ export function validateTag(root, tag, expectedCommit) {
   const pkg = metadata.packages.find(pkg => path.resolve(pkg.manifest_path) === path.join(root, 'Cargo.toml'));
   assert.equal(pkg?.name, 'polyfw', 'Expected the root polyfw package');
   assert.equal(version, pkg.version, 'Tag and Cargo.toml versions differ');
+  readSchema(root, version);
   const commit = command('git', ['rev-parse', 'HEAD'], root);
   let triggeringCommit;
   try {
@@ -101,7 +109,8 @@ export function packageBinary(root, target, version) {
   const binary = path.join(root, 'target', target, 'release', binaryName);
   assert.equal(command(binary, ['--version'], root), `polyfw ${version}`, 'Binary version differs from the tag');
   assert.match(command(binary, ['--help'], root), /Usage:/);
-  JSON.parse(command(binary, ['schema'], root));
+  assert.deepEqual(JSON.parse(command(binary, ['schema'], root)), readSchema(root, version),
+    'Binary schema differs from committed polyfw.schema.json');
   const dist = path.join(root, 'dist');
   const stage = path.join(dist, `polyfw-${target}`);
   fs.mkdirSync(stage, { recursive: true });

@@ -11,6 +11,18 @@ import {
 } from './release.mjs';
 
 const release = (version, extra = {}) => ({ tag_name: `v${version}`, draft: false, prerelease: !!parseVersion(version).prerelease.length, ...extra });
+const schemaFor = version => ({
+  $id: `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v${version}/polyfw.schema.json`,
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  type: 'object',
+});
+
+test('configuration guide pins the committed release schema', () => {
+  const schema = JSON.parse(fs.readFileSync(new URL('../../polyfw.schema.json', import.meta.url), 'utf8'));
+  const guide = fs.readFileSync(new URL('../../docs/configuration.md', import.meta.url), 'utf8');
+  const links = [...guide.matchAll(/^#:schema (https:\/\/\S+)$/gm)].map(match => match[1]);
+  assert.deepEqual(links, [schema.$id], 'Update the configuration example when regenerating a versioned schema');
+});
 
 test('SemVer ordering and channel detection cover prereleases and hyphenated build metadata', () => {
   const versions = ['1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-alpha.beta', '1.0.0-beta', '1.0.0-beta.2', '1.0.0-beta.11', '1.0.0-rc.1', '1.0.0'];
@@ -36,7 +48,7 @@ test('release notes compare stable releases separately from the current prerelea
   assert.equal(notesBase([], '0.1.0-rc.1'), undefined);
 });
 
-test('tag validation rejects version mismatch, commits outside main, and moved tags', t => {
+test('tag validation rejects version or schema mismatch, commits outside main, and moved tags', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'polyfw-release-git-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -44,6 +56,9 @@ test('tag validation rejects version mismatch, commits outside main, and moved t
   fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nname = "polyfw"\nversion = "0.2.0-rc.1"\nedition = "2024"\n');
   fs.writeFileSync(path.join(root, 'src/main.rs'), 'fn main() {}\n');
   fs.copyFileSync(fileURLToPath(new URL('../../rust-toolchain.toml', import.meta.url)), path.join(root, 'rust-toolchain.toml'));
+  const schemaFile = path.join(root, 'polyfw.schema.json');
+  const schema = schemaFor('0.2.0-rc.1');
+  fs.writeFileSync(schemaFile, JSON.stringify(schema));
   execFileSync('cargo', ['generate-lockfile', '--offline'], { cwd: root });
   git('init', '--initial-branch=main');
   git('add', '.');
@@ -56,6 +71,14 @@ test('tag validation rejects version mismatch, commits outside main, and moved t
   assert(valid.prerelease);
   assert.equal(valid.rust_toolchain, '1.100.0');
   assert.equal(validateTag(root, 'v0.2.0-rc.1', git('rev-parse', 'refs/tags/v0.2.0-rc.1')).commit, commit);
+  for (const id of [
+    'https://raw.githubusercontent.com/inaku-Gyan/polyfw/main/polyfw.schema.json',
+    schemaFor('0.2.0').$id,
+  ]) {
+    fs.writeFileSync(schemaFile, JSON.stringify({ ...schema, $id: id }));
+    assert.throws(() => validateTag(root, 'v0.2.0-rc.1', commit), /Schema \$id differs/);
+  }
+  fs.writeFileSync(schemaFile, JSON.stringify(schema));
   if (process.platform !== 'win32') {
     const alias = `${root}-alias`;
     fs.symlinkSync(root, alias);
@@ -230,7 +253,13 @@ test('archive layout matches binstall and contains a runnable binary, README and
   const target = process.platform === 'darwin' ? 'aarch64-apple-darwin' : 'x86_64-unknown-linux-gnu';
   const binary = path.join(root, 'target', target, 'release', 'polyfw');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
-  fs.writeFileSync(binary, '#!/bin/sh\ncase "$1" in\n--version) echo "polyfw 0.2.0-rc.1";;\n--help) echo "Usage: polyfw";;\nschema) echo "{}";;\nesac\n', { mode: 0o755 });
+  const schema = schemaFor('0.2.0-rc.1');
+  const schemaFile = path.join(root, 'polyfw.schema.json');
+  const writeBinary = value => fs.writeFileSync(binary,
+    `#!/bin/sh\ncase "$1" in\n--version) echo "polyfw 0.2.0-rc.1";;\n--help) echo "Usage: polyfw";;\nschema) echo '${JSON.stringify(value)}';;\nesac\n`,
+    { mode: 0o755 });
+  writeBinary(schema);
+  fs.writeFileSync(schemaFile, JSON.stringify(schema));
   fs.writeFileSync(path.join(root, 'README.md'), 'Readme');
   fs.writeFileSync(path.join(root, 'LICENSE'), 'MIT');
   const archive = packageBinary(root, target, '0.2.0-rc.1');
@@ -239,4 +268,11 @@ test('archive layout matches binstall and contains a runnable binary, README and
   assert(entries.includes(`polyfw-${target}/README.md`));
   assert(entries.includes(`polyfw-${target}/LICENSE`));
   assert.throws(() => packageBinary(root, target, '0.2.0'), /Binary version differs/);
+  for (const value of [{}, schemaFor('0.2.0'), { ...schema, type: 'string' }]) {
+    writeBinary(value);
+    assert.throws(() => packageBinary(root, target, '0.2.0-rc.1'), /Binary schema differs/);
+  }
+  writeBinary(schema);
+  fs.writeFileSync(schemaFile, JSON.stringify(schemaFor('0.1.0')));
+  assert.throws(() => packageBinary(root, target, '0.2.0-rc.1'), /Schema \$id differs/);
 });

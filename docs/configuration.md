@@ -27,7 +27,6 @@ controller/
 ├── Cargo.lock
 ├── rust-toolchain.toml
 ├── polyfw.toml
-├── polyfw.schema.json
 └── src/
     ├── lib.rs
     └── main.rs
@@ -102,7 +101,7 @@ Create `polyfw.toml` in the directory that should own selection state, generated
 and firmware artifacts:
 
 ```toml
-#:schema ./polyfw.schema.json
+#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json
 
 [config]
 local-dependencies = ["./**"]
@@ -142,14 +141,34 @@ It counts all declared binaries, including feature-gated targets, independently 
 Different packages in one BSP must use distinct binary names because their artifact paths share
 one BSP cache.
 
-Generate the editor schema from the installed version:
+The `#:schema` URL pins the full polyfw version. Run `polyfw --version` and replace the tag
+in the example with that version, including patch and prerelease suffixes: for example,
+`0.2.0-rc.1` uses `v0.2.0-rc.1`. Use the same version as the CLI that operates on the project.
+Keep the fixed tag instead of `main` or `latest` so later releases cannot change its editor rules.
+
+For offline use or a development build, generate a local schema from the installed executable:
 
 ```sh
 polyfw schema --output polyfw.schema.json
 ```
 
-The command works without a project or Rust installation. The schema checks configuration
-structure; polyfw additionally validates Cargo workspace membership and targets at runtime.
+Then replace the remote directive in `polyfw.toml` with:
+
+```toml
+#:schema ./polyfw.schema.json
+```
+
+Regenerate the local file when changing polyfw versions. The command works without a project,
+Rust installation or network access. Its `$id` is the same versioned URL as the released file;
+`$schema` identifies the JSON Schema Draft 7 dialect, independently of the software version.
+
+Source builds use the version declared in `Cargo.toml`, without a Git or development suffix.
+A future tag's URL is unavailable until the tag is pushed. While developing changes under an
+unchanged version, its existing tag still serves the released schema; use the generated local
+file to match the development executable.
+
+The schema checks configuration structure; polyfw additionally validates Cargo workspace
+membership and targets at runtime.
 Most project commands validate every registered BSP before acting, so a broken BSP can prevent
 a command for another board from starting.
 

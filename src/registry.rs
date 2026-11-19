@@ -881,11 +881,24 @@ mod tests {
     }
 
     #[test]
+    fn the_schema_identifies_the_package_version_and_draft07_dialect() {
+        let schema: serde_json::Value = serde_json::from_str(&schema_source().unwrap()).unwrap();
+        assert_eq!(
+            schema["$id"],
+            format!(
+                "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v{}/polyfw.schema.json",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+    }
+
+    #[test]
     fn the_registry_schema_matches_the_generated_schema() {
         assert_eq!(
             include_str!("../polyfw.schema.json"),
             schema_source().unwrap(),
-            "registry schema is stale; run polyfw schema"
+            "registry schema is stale; run just schema"
         );
     }
 

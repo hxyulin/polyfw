@@ -77,8 +77,16 @@ Each description has one source:
 | Agent instructions | `AGENTS.md` | Keep repository-specific rules and conditional document pointers concise |
 
 The schema equality test rejects output that differs from the Rust generator. Editing the JSON
-alone is not sufficient. It describes configuration structure; Cargo-dependent constraints still
-need runtime validation and prose explanation.
+alone is not sufficient. Its `$id` uses the compile-time `CARGO_PKG_VERSION` and the corresponding
+`v<VERSION>` source tag; `$schema` remains the Draft 7 dialect URI. Regenerate it after package
+version changes as well as model changes. Follow the
+[version preparation steps](releasing.md#prepare-a-version) to keep the committed schema and
+configuration guide's pinned link aligned; release tests check
+that link, and every release binary must emit the committed schema.
+
+The schema describes configuration structure; Cargo-dependent constraints still need runtime
+validation and prose explanation. Use a locally generated schema for an untagged development
+build, as described in [Configuration](configuration.md#register-the-board).
 
 Use English throughout, with the `controller` example for user-facing commands. Put complete
 explanations in their owning guide and link from other pages. README uses absolute GitHub links
@@ -104,7 +112,7 @@ fixtures establish generated arguments/settings, not physical device behavior.
 ## Validate changes
 
 - For Rust, CLI help or model documentation changes, run `just check`. Regenerate the schema when
-  its model descriptions or fields change, and inspect the affected command help.
+  its model descriptions, fields or package version change, and inspect the affected command help.
 - For release-script, workflow or packaging changes, also run the Node release tests and the
   package/dry-run checks in [Releasing](releasing.md#prepare-a-version).
 - For Markdown-only changes, verify links, heading anchors, configuration snippets and command
