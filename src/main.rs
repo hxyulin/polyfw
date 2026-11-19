@@ -5,6 +5,7 @@ mod cli;
 mod commands;
 mod config_version;
 mod info;
+mod init;
 mod local_dependencies;
 mod model;
 mod probe;
@@ -52,6 +53,14 @@ fn run(task: Task, project_root: Option<&Path>, ui: &Ui) -> Result<ExitCode> {
     }
     if let Task::Probes = task {
         probe::list(&std::env::current_dir()?, ui)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Task::Init = task {
+        let root = registry::project_root(
+            Some(project_root.unwrap_or(Path::new("."))),
+            &std::env::current_dir()?,
+        )?;
+        init::run(&root, ui)?;
         return Ok(ExitCode::SUCCESS);
     }
     let root = registry::project_root(project_root, &std::env::current_dir()?)?;

@@ -130,10 +130,43 @@ Every Cargo subprocess runs from its owning workspace and clears inherited `RUST
 This lets firmware and dependencies use their own Rust pins. To test a compiler override, run
 Cargo directly in that workspace; an outer `cargo +VERSION` does not override polyfw's children.
 
+## Initialize a configuration
+
+From your existing Cargo firmware project, create a configuration template:
+
+```sh
+polyfw init
+```
+
+To initialize an existing directory from elsewhere:
+
+```sh
+polyfw --project-root /path/to/firmware-demos init
+```
+
+The destination is exactly the current directory or the explicit `--project-root`, with relative
+paths starting at the caller's directory. It must already exist. Initialization does not search
+ancestors, so it can create a separate configuration inside an existing project's subdirectory.
+Any existing `polyfw.toml` entry, including a directory or dangling symlink, is an error; move or
+remove it yourself before generating a replacement. There is no overwrite or merge mode.
+
+The template contains one BSP and one board, TODO values for the workspace, chip, description
+and firmware package, and the default checking/editor settings. Edit those values to match your
+project; set `bin` when the package has multiple binaries. The schema link and `config-version`
+use the running CLI's release version; `min-polyfw-version` uses its conservative
+[authoring minimum](#configuration-compatibility).
+
+The command is non-interactive, creates only `polyfw.toml` and needs no Cargo, Rust or network
+access. It does not inspect Cargo manifests or change source, state, editor or Git files.
+Successful creation does not validate your firmware project. After editing the template, add the
+[ignore entries below](#register-the-firmware-targets) yourself and run `polyfw info` to validate
+the configuration and Cargo setup.
+
 ## Register the firmware targets
 
-Create `polyfw.toml` at the `firmware-demos` root, which owns selection state, generated editor
-files and firmware artifacts. Register both firmware targets against the same BSP:
+Keep `polyfw.toml` at the `firmware-demos` root, which owns selection state, generated editor
+files and firmware artifacts. Customize the generated template to register both firmware targets
+against the same BSP:
 
 ```toml
 #:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json

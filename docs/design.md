@@ -13,7 +13,7 @@ The accepted release-linked configuration compatibility decision is recorded in
 | Owner | Responsibility |
 | --- | --- |
 | Consuming project | Board registry, Cargo workspaces, Rust pins, targets, features, profiles and firmware sources |
-| polyfw | Root discovery, registry validation, board/profile selection, check planning, artifact paths and subprocess orchestration |
+| polyfw | Configuration template creation, root discovery, registry validation, board/profile selection, check planning, artifact paths and subprocess orchestration |
 | Cargo and rustup | Package resolution, compilation, tests, formatting and compiler selection within each workspace |
 | probe-rs | Probe access, flashing, reset and RTT sessions |
 | VS Code extension | Debug sessions using polyfw's generated launch configuration |
@@ -32,6 +32,13 @@ only launches probe-rs from the caller's directory.
 Project discovery selects an explicit root or the nearest ancestor containing `polyfw.toml`, then
 canonicalizes it. A selected invalid project is an error. Installation location, Git boundaries
 and the tool's own source directory do not participate in discovery.
+
+`init` runs before configuration loading. It reuses explicit-root directory validation for the
+current directory or `--project-root`, avoiding ancestor discovery. Exclusive file creation
+enforces the [initializer's no-overwrite contract](configuration.md#initialize-a-configuration),
+including for dangling symlinks, without a separate existence check. The template uses the
+release and authoring-minimum constants from `config_version`; it needs no Cargo, state or
+hardware context.
 
 Loading has two stages:
 

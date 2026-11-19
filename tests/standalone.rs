@@ -8,7 +8,13 @@ use std::process::{Command, Output};
 fn help_version_and_schema_work_without_a_project_or_rust_tools() {
     let fixture = Fixture::new("project-free");
     fs::write(fixture.root.join("polyfw.toml"), "invalid TOML").unwrap();
-    for args in [vec![], vec!["--help"], vec!["help", "build"]] {
+    for args in [
+        vec![],
+        vec!["--help"],
+        vec!["help", "build"],
+        vec!["help", "init"],
+        vec!["init", "--help"],
+    ] {
         let output = fixture.command().args(args).output().unwrap();
         succeeded(&output);
         assert!(String::from_utf8(output.stdout).unwrap().contains("polyfw"));
@@ -37,6 +43,188 @@ fn help_version_and_schema_work_without_a_project_or_rust_tools() {
         fs::read(fixture.root.join("polyfw.schema.json")).unwrap(),
         include_bytes!("../polyfw.schema.json")
     );
+}
+
+#[test]
+fn initialization_creates_only_a_template_without_tools_or_ancestor_discovery() {
+    let fixture = Fixture::new("init-current-directory");
+    fs::write(
+        fixture.root.join("polyfw.toml"),
+        "invalid ancestor configuration",
+    )
+    .unwrap();
+    let root = fixture.root.join("firmware-demos");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Cargo.toml"), "unread Cargo manifest").unwrap();
+    fs::write(root.join(".gitignore"), "existing ignores\n").unwrap();
+
+    let output = fixture
+        .command()
+        .current_dir(&root)
+        .arg("init")
+        .output()
+        .unwrap();
+    succeeded(&output);
+    let message = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        message.contains(
+            &root
+                .canonicalize()
+                .unwrap()
+                .join("polyfw.toml")
+                .display()
+                .to_string()
+        ),
+        "{message}"
+    );
+    assert!(message.contains("TODO"), "{message}");
+    assert!(message.contains(".gitignore"), "{message}");
+    assert!(message.contains("polyfw info"), "{message}");
+
+    // Exercise version, model and structural validation without invoking Cargo.
+    let output = fixture
+        .command()
+        .current_dir(&root)
+        .args(["select", "--clear"])
+        .output()
+        .unwrap();
+    succeeded(&output);
+    assert_eq!(
+        fs::read_to_string(root.join("Cargo.toml")).unwrap(),
+        "unread Cargo manifest"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        "existing ignores\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("polyfw.toml")).unwrap(),
+        "invalid ancestor configuration"
+    );
+    let mut entries = fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".gitignore", "Cargo.toml", "polyfw.toml"]);
+}
+
+#[test]
+fn initialization_uses_the_exact_explicit_directory_relative_to_the_caller() {
+    for (label, absolute, root_first) in [
+        ("relative-before", false, true),
+        ("relative-after", false, false),
+        ("absolute-before", true, true),
+        ("absolute-after", true, false),
+    ] {
+        let fixture = Fixture::new(&format!("init-{label}"));
+        fs::write(
+            fixture.root.join("polyfw.toml"),
+            "invalid ancestor configuration",
+        )
+        .unwrap();
+        let caller = fixture.root.join("caller");
+        let destination = fixture.root.join("firmware-demos");
+        fs::create_dir(&caller).unwrap();
+        fs::create_dir(&destination).unwrap();
+        let argument = if absolute {
+            destination.clone()
+        } else {
+            PathBuf::from("../firmware-demos")
+        };
+        let mut command = fixture.command();
+        command.current_dir(&caller);
+        if !root_first {
+            command.arg("init");
+        }
+        command.arg("--project-root").arg(argument);
+        if root_first {
+            command.arg("init");
+        }
+        succeeded(&command.output().unwrap());
+        assert!(destination.join("polyfw.toml").is_file());
+        assert!(!caller.join("polyfw.toml").exists());
+        assert_eq!(
+            fs::read_to_string(fixture.root.join("polyfw.toml")).unwrap(),
+            "invalid ancestor configuration"
+        );
+    }
+}
+
+#[test]
+fn initialization_requires_an_existing_directory() {
+    let fixture = Fixture::new("init-invalid-root");
+    fs::write(fixture.root.join("not a directory"), "existing file").unwrap();
+    for root in ["missing/child", "not a directory"] {
+        let output = fixture
+            .command()
+            .args(["init", "--project-root", root])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains(root), "{error}");
+    }
+    assert!(!fixture.root.join("missing").exists());
+    assert!(!fixture.root.join("polyfw.toml").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("not a directory")).unwrap(),
+        "existing file"
+    );
+}
+
+#[test]
+fn initialization_preserves_existing_configuration_files_and_directories() {
+    for directory in [false, true] {
+        let fixture = Fixture::new(&format!("init-existing-{directory}"));
+        let path = fixture.root.join("polyfw.toml");
+        let original = b"existing configuration\xff";
+        let protected = if directory {
+            fs::create_dir(&path).unwrap();
+            path.join("keep")
+        } else {
+            path.clone()
+        };
+        fs::write(&protected, original).unwrap();
+        let output = fixture.command().arg("init").output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("polyfw.toml"), "{error}");
+        if !directory {
+            assert!(error.contains("already exists"), "{error}");
+        }
+        assert_eq!(fs::read(protected).unwrap(), original);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn initialization_preserves_existing_configuration_symlinks_including_dangling_ones() {
+    for dangling in [false, true] {
+        let fixture = Fixture::new(&format!("init-symlink-{dangling}"));
+        let target = fixture.root.join("target.toml");
+        if !dangling {
+            fs::write(&target, "existing configuration").unwrap();
+        }
+        let path = fixture.root.join("polyfw.toml");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        let output = fixture.command().arg("init").output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("already exists"), "{error}");
+        assert_eq!(fs::read_link(path).unwrap(), target);
+        if dangling {
+            assert!(!target.exists());
+        } else {
+            assert_eq!(
+                fs::read_to_string(target).unwrap(),
+                "existing configuration"
+            );
+        }
+    }
 }
 
 #[test]

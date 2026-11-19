@@ -43,6 +43,7 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/main.rs`, `src/cli.rs` | Project-free dispatch, loading boundaries and CLI arguments/help |
 | `src/model.rs`, `src/registry.rs` | Configuration/schema model, root discovery, validation and saved state |
 | `src/config_version.rs` | Version preflight, SemVer precedence and release-maintained compatibility baselines |
+| `src/init.rs` | Configuration template and exclusive creation without project loading |
 | `src/cargo_config.rs` | Effective Cargo target/CPU and toolchain resolution |
 | `src/local_dependencies.rs`, `src/scope.rs` | Canonical directory matching and host/MCU package scopes |
 | `src/commands.rs` | Board/profile resolution and ordered Cargo stages |

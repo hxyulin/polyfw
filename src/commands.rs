@@ -21,7 +21,8 @@ pub(crate) fn run(context: Context, task: Task, ui: &Ui) -> Result<ExitCode> {
         Task::Fmt(_) | Task::Lint(_) | Task::Test(_) | Task::Verify(_) => {
             scope::resolve(&context, &selections)?
         }
-        Task::Schema { .. }
+        Task::Init
+        | Task::Schema { .. }
         | Task::Info { .. }
         | Task::Select { .. }
         | Task::Clean(_)
@@ -33,6 +34,7 @@ pub(crate) fn run(context: Context, task: Task, ui: &Ui) -> Result<ExitCode> {
         | Task::Reset(_) => Vec::new(),
     };
     match task {
+        Task::Init => crate::init::run(&context.root, ui),
         Task::Schema { output } => crate::registry::write_schema(output.as_deref()),
         Task::Info { board, json } => info(&context, ui, board, json),
         Task::Select {

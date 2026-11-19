@@ -51,7 +51,9 @@ required by the consuming project. Flashing and monitoring also need
 
 ## Use a project
 
-First [configure your existing firmware project](https://github.com/inaku-Gyan/polyfw/blob/main/docs/configuration.md).
+Run `polyfw init` in your existing firmware project, then
+[edit the generated configuration](https://github.com/inaku-Gyan/polyfw/blob/main/docs/configuration.md#initialize-a-configuration)
+to match its workspace, chip and firmware packages.
 The `firmware-demos` example registers `led-demo` and `buzzer-demo` as two firmware targets for
 the same physical board, sharing the `demo-board` BSP. From that project or any subdirectory:
 

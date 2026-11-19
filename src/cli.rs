@@ -28,6 +28,7 @@ use crate::ui::color_enabled;
   run, flash and attach use an existing image: run build after changing firmware source.
 
 Examples:
+  polyfw init
   polyfw info
   polyfw select led-demo --release
   polyfw verify --all-boards
@@ -46,11 +47,13 @@ Examples:
         .context_value(AnsiColor::BrightCyan.on_default())
 )]
 pub(crate) struct Cli {
-    /// Operate on the directory containing polyfw.toml.
+    /// Operate on the directory containing polyfw.toml; init creates it there.
     ///
     /// Relative paths start at the caller's working directory. Otherwise, search
     /// that directory and its ancestors for the nearest polyfw.toml. An invalid
-    /// selected project is an error. Help, version, schema and probes ignore this option.
+    /// selected project is an error. For init, use this existing directory or the
+    /// current directory without searching ancestors. Help, version, schema and
+    /// probes ignore this option.
     #[arg(
         long,
         value_name = "DIR",
@@ -216,6 +219,22 @@ impl RttChannelMode {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Task {
+    /// Create a polyfw.toml template for an existing Cargo firmware project.
+    ///
+    /// Write in the current directory, or the existing directory named by
+    /// --project-root, without searching ancestors. Refuse to overwrite any existing
+    /// polyfw.toml. Edit the TODO values before running polyfw info to validate the
+    /// project. Creates only the configuration; does not inspect Cargo or change
+    /// source, state, editor or Git files. Needs no project configuration, external
+    /// tools or network access and never prompts.
+    #[command(
+        verbatim_doc_comment,
+        after_long_help = "Examples:
+  polyfw init
+  polyfw --project-root /path/to/firmware-demos init"
+    )]
+    Init,
+
     /// Print or write JSON Schema for this version's polyfw.toml.
     ///
     /// Its $id points to the exact package version's Git tag, including prerelease suffixes.
@@ -463,7 +482,8 @@ impl Task {
             | Self::Run { profile, .. }
             | Self::Flash { profile, .. }
             | Self::Attach { profile, .. } => profile.explicit(),
-            Self::Schema { .. }
+            Self::Init
+            | Self::Schema { .. }
             | Self::Info { .. }
             | Self::Clean(_)
             | Self::Probes
@@ -477,7 +497,11 @@ impl Task {
 
     pub(crate) fn board_args(&self) -> Option<BoardArgs> {
         match self {
-            Self::Schema { .. } | Self::Info { .. } | Self::Select { .. } | Self::Probes => None,
+            Self::Init
+            | Self::Schema { .. }
+            | Self::Info { .. }
+            | Self::Select { .. }
+            | Self::Probes => None,
             Self::Clean(boards)
             | Self::Build { boards, .. }
             | Self::Fmt(boards)
@@ -712,7 +736,8 @@ mod tests {
                     assert!(!flash);
                     target
                 }
-                Task::Schema { .. }
+                Task::Init
+                | Task::Schema { .. }
                 | Task::Info { .. }
                 | Task::Select { .. }
                 | Task::Clean(_)
@@ -786,7 +811,8 @@ mod tests {
                 profile,
                 monitor,
             } => (target, profile, monitor),
-            Task::Schema { .. }
+            Task::Init
+            | Task::Schema { .. }
             | Task::Info { .. }
             | Task::Select { .. }
             | Task::Clean(_)

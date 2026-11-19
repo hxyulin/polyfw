@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::io::{self, IsTerminal};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use clap::ColorChoice;
@@ -52,6 +53,13 @@ impl Ui {
 
     pub(crate) fn error(&self, error: &dyn Display) {
         eprintln!("{} {error}", style("error:").red().bold());
+    }
+
+    pub(crate) fn initialized(&self, path: &Path) {
+        println!("{} {}", style("created").green().bold(), path.display());
+        println!("Edit the TODO values in polyfw.toml to match your Cargo firmware project.");
+        println!("Add /.polyfw-state/, /target/ and /.vscode/launch.json to its .gitignore.");
+        println!("Then run polyfw info from that directory, or pass --project-root <DIR>.");
     }
 
     pub(crate) fn selected(&self, board: &str, profile: Option<&Profile>) {

@@ -1,6 +1,7 @@
 # Usage
 
-Start with [Project configuration](configuration.md) if the project has no `polyfw.toml`.
+Run `polyfw init` to create a `polyfw.toml` template, then follow
+[Project configuration](configuration.md#initialize-a-configuration) to edit it for your project.
 The commands below use its `led-demo` and `buzzer-demo` firmware targets, which share the
 `demo-board` BSP. Replace them with board IDs listed by your project's `polyfw info`.
 
@@ -10,6 +11,7 @@ Run `polyfw help COMMAND` for the installed version's arguments and examples.
 
 | Command | Purpose | Aliases |
 | --- | --- | --- |
+| `init` | Create a configuration template for an existing firmware project | |
 | `schema` | Print or write the project configuration's JSON Schema | |
 | `info` | Inspect boards, saved selection and existing firmware images | `i` |
 | `select` | Save or clear a board and optional profile | `s` |
@@ -40,6 +42,9 @@ polyfw --project-root /path/to/firmware-demos info
 `--project-root` is global and can appear before or after the command. Relative values start
 at the caller's working directory; the last explicit value wins. An invalid explicit root or
 the nearest invalid configuration fails instead of falling back to another project.
+
+`init` uses the exact current directory or explicit root without searching ancestors. See
+[configuration initialization](configuration.md#initialize-a-configuration) for its creation rules.
 
 The selected root owns state, editor output, firmware caches and hardware-command working
 directories. It need not be a Git repository. Help, version, `schema` and `probes` ignore project
