@@ -1,8 +1,9 @@
 # Project configuration
 
-This guide connects an existing embedded Rust project to polyfw. It uses a board ID of
-`controller`, a BSP ID of `controller-model`, and the Cargo package `controller-firmware`.
-Replace the chip, target, CPU and package names with those of your board.
+This guide connects an existing embedded Rust project to polyfw. The example project,
+`firmware-demos`, has two firmware packages: `led-demo` and `buzzer-demo`. Each has a matching
+board ID, and both run on the same physical board through the shared `demo-board` BSP.
+Replace the chip, target, CPU and package names with those of your project.
 
 For everyday commands, see [Usage](usage.md). For package traversal and validation internals,
 see [Design](design.md).
@@ -10,33 +11,49 @@ see [Design](design.md).
 ## Prepare the Cargo project
 
 polyfw expects working firmware sources, runtime setup and linker scripts. Keep those in
-the consuming project. Its firmware package must:
+the consuming project. Each firmware package must:
 
 - Be a member of the Cargo workspace registered for its BSP.
 - Declare a library that can be checked on both the MCU and the development host.
 - Declare at least one binary. A package with multiple binaries needs an explicit `bin`
   in its board registration.
 
-A single-package workspace can have this layout:
+A workspace containing both firmware packages can have this layout:
 
 ```text
-controller/
+firmware-demos/
 ├── .cargo/config.toml
 ├── .gitignore
 ├── Cargo.toml
 ├── Cargo.lock
 ├── rust-toolchain.toml
 ├── polyfw.toml
-└── src/
-    ├── lib.rs
-    └── main.rs
+└── firmwares/
+    ├── led-demo/
+    │   ├── Cargo.toml
+    │   └── src/
+    │       ├── lib.rs
+    │       └── main.rs
+    └── buzzer-demo/
+        ├── Cargo.toml
+        └── src/
+            ├── lib.rs
+            └── main.rs
 ```
 
-Relevant parts of the existing `Cargo.toml`:
+The root `Cargo.toml` defines a virtual workspace:
+
+```toml
+[workspace]
+members = ["firmwares/led-demo", "firmwares/buzzer-demo"]
+resolver = "3"
+```
+
+Relevant parts of `firmwares/led-demo/Cargo.toml`:
 
 ```toml
 [package]
-name = "controller-firmware"
+name = "led-demo"
 version = "0.1.0"
 edition = "2024"
 
@@ -44,16 +61,34 @@ edition = "2024"
 path = "src/lib.rs"
 
 [[bin]]
-name = "controller-firmware"
+name = "led-demo"
 path = "src/main.rs"
 test = false
 bench = false
 ```
 
-Keep host-testable logic in the library. For a hardware-only binary, `test = false` keeps
+The second package, `firmwares/buzzer-demo/Cargo.toml`, declares its own library and binary:
+
+```toml
+[package]
+name = "buzzer-demo"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "buzzer-demo"
+path = "src/main.rs"
+test = false
+bench = false
+```
+
+Keep host-testable logic in each package's library. For a hardware-only binary, `test = false` keeps
 Cargo's default host test run from creating a binary test harness. The host Clippy stage
 still checks enabled test targets; use conditional compilation where host and MCU code differ.
-Run Cargo directly to confirm the package's host tests work before registering it.
+Run Cargo directly to confirm each package's host tests work before registering it.
 
 From the consuming workspace, install its required components and target:
 
@@ -95,10 +130,10 @@ Every Cargo subprocess runs from its owning workspace and clears inherited `RUST
 This lets firmware and dependencies use their own Rust pins. To test a compiler override, run
 Cargo directly in that workspace; an outer `cargo +VERSION` does not override polyfw's children.
 
-## Register the board
+## Register the firmware targets
 
-Create `polyfw.toml` in the directory that should own selection state, generated editor files
-and firmware artifacts:
+Create `polyfw.toml` at the `firmware-demos` root, which owns selection state, generated editor
+files and firmware artifacts. Register both firmware targets against the same BSP:
 
 ```toml
 #:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json
@@ -109,19 +144,27 @@ local-dependencies = ["./**"]
 [config.vscode]
 enabled = true
 
-[bsps.controller-model]
+[bsps.demo-board]
 workspace = "."
 chip = "STM32H723VGTx"
 
-[boards.controller]
-description = "Controller firmware"
-bsp = "controller-model"
-package = "controller-firmware"
+[boards.led-demo]
+description = "LED demo firmware"
+bsp = "demo-board"
+package = "led-demo"
+
+[boards.buzzer-demo]
+description = "Buzzer demo firmware"
+bsp = "demo-board"
+package = "buzzer-demo"
 ```
+
+The board IDs select the two firmware packages for the same hardware. Each package has one
+binary, so both registrations omit `bin`. The shared BSP points to the root workspace and chip.
 
 Both `config` tables are optional; omitting them preserves the defaults shown here.
 Unknown fields are errors at every level. Board and BSP IDs start with a lowercase letter and
-contain lowercase letters, digits and single hyphens, for example `controller-model`.
+contain lowercase letters, digits and single hyphens, for example `demo-board`.
 At least one BSP and one board are required.
 
 | Field | Required | Meaning |
@@ -135,8 +178,8 @@ At least one BSP and one board are required.
 | `config.local-dependencies` | No | Directory globs selecting reachable path dependencies for checks; default `["./**"]` |
 | `config.vscode.enabled` | No | Manage the entire `.vscode/launch.json` on selection save/clear; default `true` |
 
-For an explicit binary, add `bin = "controller-firmware"` to the board table. Without `bin`,
-polyfw infers the sole binary for ELF lookup but leaves Cargo's default build targets intact.
+For an explicit binary, add `bin = "led-demo"` to `[boards.led-demo]`. Without `bin`, polyfw
+infers the sole binary for ELF lookup but leaves Cargo's default build targets intact.
 It counts all declared binaries, including feature-gated targets, independently of `default-run`.
 Different packages in one BSP must use distinct binary names because their artifact paths share
 one BSP cache.
@@ -183,10 +226,12 @@ Add generated files to the consuming project's `.gitignore`:
 Then inspect the registry and run the first checks:
 
 ```sh
-polyfw info --board controller
-polyfw select controller --release
-polyfw verify
-polyfw build
+polyfw info
+polyfw info --board led-demo
+polyfw info --board buzzer-demo
+polyfw select led-demo --release
+polyfw verify --all-boards
+polyfw build --all-boards --release
 ```
 
 Connect the board before running `polyfw flash`. See [hardware commands](usage.md#flash-and-monitor)
@@ -221,6 +266,9 @@ unmatched patterns select nothing, while malformed patterns fail before Cargo ru
 Git dependencies are excluded. The globs do not scan directories, and traversal continues through
 excluded packages. They select polyfw's checks; Cargo still builds whatever dependencies those
 packages require. See [check planning](design.md#check-planning) for host and MCU classification.
+
+In this example, `polyfw verify led-demo` checks the LED package; sharing a workspace does not
+make `buzzer-demo` its dependency. Use `polyfw verify --all-boards` to check both firmware packages.
 
 ## Add boards and workspaces
 

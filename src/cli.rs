@@ -29,12 +29,13 @@ use crate::ui::color_enabled;
 
 Examples:
   polyfw info
-  polyfw select controller --release
-  polyfw verify
-  polyfw build
+  polyfw select led-demo --release
+  polyfw verify --all-boards
+  polyfw build --all-boards --release
   polyfw probes
   polyfw run
-  polyfw verify --all-boards
+  polyfw select buzzer-demo --release
+  polyfw run
   polyfw help build",
     styles = Styles::styled()
         .header(AnsiColor::BrightGreen.on_default())
@@ -239,8 +240,8 @@ pub(crate) enum Task {
         after_long_help = "Examples:
   polyfw info
   polyfw info --board
-  polyfw info --board controller
-  polyfw info --board controller --json"
+  polyfw info --board led-demo
+  polyfw info --board buzzer-demo --json"
     )]
     Info {
         /// Show one board's details; omit BOARD to pick interactively without saving.
@@ -262,7 +263,8 @@ pub(crate) enum Task {
         visible_alias = "s",
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw select controller --release
+  polyfw select led-demo --release
+  polyfw select buzzer-demo --release
   polyfw select
   polyfw select --clear"
     )]
@@ -291,7 +293,7 @@ pub(crate) enum Task {
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw clean controller
+  polyfw clean led-demo
   polyfw clean --all-boards"
     )]
     Clean(BoardArgs),
@@ -308,7 +310,8 @@ pub(crate) enum Task {
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw build
-  polyfw build --select controller --release
+  polyfw build --select led-demo --release
+  polyfw build buzzer-demo --release
   polyfw build --all-boards --release"
     )]
     Build {
@@ -329,9 +332,10 @@ pub(crate) enum Task {
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw run controller
+  polyfw run led-demo
+  polyfw run buzzer-demo --release
   polyfw run --release
-  polyfw run controller --probe VID:PID:SERIAL --speed 4000"
+  polyfw run led-demo --probe VID:PID:SERIAL --speed 4000"
     )]
     Run {
         #[command(flatten)]
@@ -350,8 +354,8 @@ pub(crate) enum Task {
         visible_aliases = ["f", "download", "d"],
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw flash controller --release
-  polyfw flash --select controller"
+  polyfw flash led-demo --release
+  polyfw flash --select buzzer-demo --release"
     )]
     Flash {
         #[command(flatten)]
@@ -368,7 +372,8 @@ pub(crate) enum Task {
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw attach controller
+  polyfw attach led-demo
+  polyfw attach buzzer-demo --release
   polyfw attach --release --no-catch-reset"
     )]
     Attach {
@@ -394,7 +399,8 @@ pub(crate) enum Task {
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw fmt controller
+  polyfw fmt led-demo
+  polyfw fmt buzzer-demo
   polyfw fmt --all-boards"
     )]
     Fmt(BoardArgs),
@@ -409,7 +415,8 @@ pub(crate) enum Task {
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw lint controller
+  polyfw lint led-demo
+  polyfw lint buzzer-demo
   polyfw lint --all-boards"
     )]
     Lint(BoardArgs),
@@ -424,7 +431,8 @@ pub(crate) enum Task {
         visible_alias = "t",
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw test controller
+  polyfw test led-demo
+  polyfw test buzzer-demo
   polyfw test --all-boards"
     )]
     Test(BoardArgs),
@@ -440,7 +448,8 @@ pub(crate) enum Task {
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw verify
-  polyfw verify controller
+  polyfw verify led-demo
+  polyfw verify buzzer-demo
   polyfw verify --all-boards"
     )]
     Verify(BoardArgs),

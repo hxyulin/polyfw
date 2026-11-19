@@ -29,8 +29,8 @@ The polyfw repository has no firmware registry of its own. Point the development
 existing consumer:
 
 ```sh
-cargo run --locked -- --project-root /path/to/controller info
-cargo run --locked -- --project-root /path/to/controller verify --all-boards
+cargo run --locked -- --project-root /path/to/firmware-demos info
+cargo run --locked -- --project-root /path/to/firmware-demos verify --all-boards
 ```
 
 Or install this checkout with `cargo install --path . --locked`. Cargo children launched by polyfw
@@ -80,12 +80,13 @@ release binary must emit the committed schema.
 
 The schema describes configuration structure; Cargo-dependent constraints still need runtime
 validation and prose explanation. Use a locally generated schema for an untagged development
-build, as described in [Configuration](configuration.md#register-the-board).
+build, as described in [Configuration](configuration.md#register-the-firmware-targets).
 
-Use English throughout, with the `controller` example for user-facing commands. Put complete
-explanations in their owning guide and link from other pages. README uses absolute GitHub links
-because detailed guides are not bundled in the crate or release archives. Links to `main` describe
-the current tree; users of older versions can browse the corresponding tag.
+Use English throughout, with the `firmware-demos` project for user-facing examples: `led-demo`
+and `buzzer-demo` share the `demo-board` BSP. Put complete explanations in their owning guide
+and link from other pages. README uses absolute GitHub links because detailed guides are not
+bundled in the crate or release archives. Links to `main` describe the current tree; users of
+older versions can browse the corresponding tag.
 
 ## Keep test fixtures isolated
 

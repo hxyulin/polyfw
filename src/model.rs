@@ -24,14 +24,14 @@ pub(crate) struct Registry {
     #[serde(default)]
     pub(crate) config: Config,
 
-    /// Board models and their consuming workspaces, keyed by BSP ID such as controller-model.
+    /// Board models and their consuming workspaces, keyed by BSP ID such as demo-board.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
         "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
     pub(crate) bsps: BTreeMap<String, Bsp>,
-    /// Programmable targets, keyed by board ID such as controller.
+    /// Programmable targets, keyed by board ID such as led-demo or buzzer-demo.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
         "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",

@@ -52,26 +52,29 @@ required by the consuming project. Flashing and monitoring also need
 ## Use a project
 
 First [configure your existing firmware project](https://github.com/inaku-Gyan/polyfw/blob/main/docs/configuration.md).
-The guide uses a board named `controller`; substitute an ID from your own registry.
-From that project or any subdirectory:
+The `firmware-demos` example registers `led-demo` and `buzzer-demo` as two firmware targets for
+the same physical board, sharing the `demo-board` BSP. From that project or any subdirectory:
 
 ```sh
 polyfw info
-polyfw select controller --release
-polyfw verify
-polyfw build
+polyfw select led-demo --release
+polyfw verify --all-boards
+polyfw build --all-boards --release
+polyfw flash
+polyfw select buzzer-demo --release
 polyfw flash
 ```
 
-`verify` checks formatting, runs MCU and host Clippy, then runs host tests. `build` creates
-the selected firmware image. `run`, `flash` and `attach` use an existing image: build again after
-changing source. Use `polyfw run` to flash and monitor, or `polyfw attach` to monitor firmware
-already running on the board.
+`verify --all-boards` checks formatting, runs MCU and host Clippy, then runs host tests for both
+packages. `build --all-boards --release` creates both release images. Selection chooses which
+image to flash. `run`, `flash` and `attach` use an existing image: build again after changing
+source. Use `polyfw run` to flash and monitor, or `polyfw attach` to monitor firmware already
+running on the board.
 
 Pass a project explicitly when running elsewhere:
 
 ```sh
-polyfw --project-root /path/to/firmware info
+polyfw --project-root /path/to/firmware-demos info
 polyfw help build
 polyfw verify --all-boards
 ```

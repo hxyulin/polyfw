@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "boards": {
-      "description": "Programmable targets, keyed by board ID such as controller.",
+      "description": "Programmable targets, keyed by board ID such as led-demo or buzzer-demo.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Board"
@@ -19,7 +19,7 @@
       }
     },
     "bsps": {
-      "description": "Board models and their consuming workspaces, keyed by BSP ID such as controller-model.",
+      "description": "Board models and their consuming workspaces, keyed by BSP ID such as demo-board.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Bsp"

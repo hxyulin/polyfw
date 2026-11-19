@@ -1,8 +1,8 @@
 # Usage
 
 Start with [Project configuration](configuration.md) if the project has no `polyfw.toml`.
-The commands below use its example board, `controller`. Replace it with a board listed by
-your project's `polyfw info`.
+The commands below use its `led-demo` and `buzzer-demo` firmware targets, which share the
+`demo-board` BSP. Replace them with board IDs listed by your project's `polyfw info`.
 
 ## Command overview
 
@@ -34,7 +34,7 @@ By default, polyfw searches the working directory and its ancestors for the near
 `polyfw.toml`. To operate elsewhere:
 
 ```sh
-polyfw --project-root /path/to/controller info
+polyfw --project-root /path/to/firmware-demos info
 ```
 
 `--project-root` is global and can appear before or after the command. Relative values start
@@ -49,7 +49,15 @@ only probe-rs and runs from the caller's directory.
 ## Save a board and profile
 
 ```sh
-polyfw select controller --release
+polyfw select led-demo --release
+polyfw build
+polyfw flash
+```
+
+To switch to the buzzer firmware on the same physical board:
+
+```sh
+polyfw select buzzer-demo --release
 polyfw build
 polyfw flash
 ```
@@ -61,8 +69,8 @@ searchable picker, or `polyfw select --clear` to remove the state and managed la
 | Invocation | Board choice | Saved state |
 | --- | --- | --- |
 | `polyfw build` | Saved board, or a picker if no board is saved | Unchanged |
-| `polyfw build controller` | Named board for this invocation | Unchanged |
-| `polyfw build --select controller` | Named board | Saved before building |
+| `polyfw build buzzer-demo` | Named board for this invocation | Unchanged |
+| `polyfw build --select buzzer-demo` | Named board | Saved before building |
 | `polyfw build --select` | Always open the picker | Saved before building |
 | `polyfw build --all-boards` | Every registered board | Unchanged |
 
@@ -74,13 +82,13 @@ argument and `--select`. Pickers require a terminal; scripts should use a board 
 `build`, `run`, `flash` and `attach` inherit the saved profile, including with a one-time board
 override. Use `--dev`, `-r`/`--release` or `--profile NAME` to override it. These forms are mutually
 exclusive. Saving a selection retains only an explicitly supplied profile:
-`polyfw select controller` clears any previously saved profile. With no explicit or saved profile, polyfw
-omits the Cargo profile flag and Cargo's build default applies. An explicit `--dev` is saved.
+`polyfw select led-demo` clears any previously saved profile. With no explicit or saved profile,
+polyfw omits the Cargo profile flag and Cargo's build default applies. An explicit `--dev` is saved.
 `--all-boards` uses only the profile passed on that invocation. `clean`, `fmt`, `lint`, `test`,
 `verify` and `reset` take no profile option.
 
 A stale or malformed saved selection is an error. A one-time board override still reads that
-state; replace it with `polyfw select controller` or remove it with `polyfw select --clear`.
+state; replace it with `polyfw select led-demo` or remove it with `polyfw select --clear`.
 Clearing works without Cargo and without parsing the old state. A successful save remains even
 if the following build or hardware action fails.
 
@@ -88,8 +96,8 @@ if the following build or hardware action fails.
 
 ```sh
 polyfw info
-polyfw info --board controller
-polyfw info --board controller --json > controller.json
+polyfw info --board led-demo
+polyfw info --board buzzer-demo --json > buzzer-demo.json
 ```
 
 The overview lists all boards, their referenced BSPs, the saved selection, and dev/release ELF
@@ -125,12 +133,14 @@ availability and picker cancellation cannot change the result.
 ## Build, check and clean
 
 ```sh
-polyfw build controller --release
-polyfw fmt controller
-polyfw lint controller
-polyfw test controller
+polyfw build led-demo --release
+polyfw build buzzer-demo --release
+polyfw build --all-boards --release
+polyfw fmt led-demo
+polyfw lint led-demo
+polyfw test led-demo
 polyfw verify --all-boards
-polyfw clean controller
+polyfw clean led-demo
 ```
 
 Builds run from the BSP's Cargo workspace with `--locked`. An explicit registry `bin` adds
@@ -152,17 +162,18 @@ defaults and unify package features. The scope is not an exact reproduction of o
 compilation graph. See [configuration](configuration.md#select-local-dependencies-for-checks)
 to control dependency selection.
 
-All BSP firmware artifacts use `target/firmware/<bsp>` under the operating project. For the
-example release image:
+All BSP firmware artifacts use `target/firmware/<bsp>` under the operating project. The two
+example release images share the BSP cache and have distinct binary names:
 
 ```text
-target/firmware/controller-model/thumbv7em-none-eabihf/release/controller-firmware
+target/firmware/demo-board/thumbv7em-none-eabihf/release/led-demo
+target/firmware/demo-board/thumbv7em-none-eabihf/release/buzzer-demo
 ```
 
 Absent, dev and test profiles use `debug`; release and bench use `release`; custom profiles use
 their own names. Define custom profiles in the consuming Cargo workspace.
 
-`clean controller` cleans that package in its BSP cache, affecting its other binaries and boards
+`clean led-demo` cleans that package in its BSP cache, affecting its other binaries and boards
 sharing the package. `clean --all-boards` removes each registered BSP's full firmware cache.
 The command lists the boards it affects. Other build directories remain independent.
 
@@ -173,11 +184,18 @@ probe access, then connect the board:
 
 ```sh
 polyfw probes
-polyfw build controller --release
-polyfw flash controller --release
-polyfw attach controller --release
+polyfw build led-demo --release
+polyfw flash led-demo --release
+polyfw attach led-demo --release
 # Or flash and start monitoring in one command:
-polyfw run controller --release
+polyfw run led-demo --release
+```
+
+To build and run the buzzer firmware instead:
+
+```sh
+polyfw build buzzer-demo --release
+polyfw run buzzer-demo --release
 ```
 
 `run`, `flash` and `attach` use an existing ELF and **never build**. `attach` needs the ELF that
@@ -187,7 +205,7 @@ The four board hardware commands accept transient `--probe VID:PID[:SERIAL]`, `-
 `--connect-under-reset` options. Omitted probe/speed options are delegated to probe-rs. For example:
 
 ```sh
-polyfw run controller --release --probe VID:PID:SERIAL --speed 4000
+polyfw run led-demo --release --probe VID:PID:SERIAL --speed 4000
 ```
 
 `run` delegates to `probe-rs run --verify`; `flash` uses `probe-rs download --verify --reset`.
@@ -212,13 +230,14 @@ settings follow the extension's
 Open the operating project root as the VS Code folder, then:
 
 ```sh
-polyfw select controller --release
+polyfw select led-demo --release
 polyfw build
 ```
 
-The saved selection generates `Launch controller (release)` and `Attach controller (release)`
-in `.vscode/launch.json`. A selection without an explicit profile omits the name suffix and uses
-the debug ELF.
+The saved selection generates `Launch led-demo (release)` and `Attach led-demo (release)`
+in `.vscode/launch.json`. Running `polyfw select buzzer-demo --release` replaces them with
+`Launch buzzer-demo (release)` and `Attach buzzer-demo (release)`. A selection without an explicit
+profile omits the name suffix and uses the debug ELF.
 
 - **Launch** flashes and verifies the existing image, resets and halts before startup. Set a
   breakpoint and continue to reach the application.
@@ -244,7 +263,7 @@ polyfw verify --all-boards
 polyfw build --all-boards --release
 ```
 
-Use `polyfw info --board controller --json` when a script needs resolved paths. Build and check
+Use `polyfw info --board led-demo --json` when a script needs resolved paths. Build and check
 output includes numbered stages, status and elapsed time; redirected output omits colors and
 Unicode marks. `--color always` and `--color never` override automatic color selection;
 `NO_COLOR=1` disables automatic colors. Cargo may need network access to resolve dependencies.
@@ -258,11 +277,11 @@ Unicode marks. `--color always` and `--color never` override automatic color sel
 | No explicit target or multiple targets | Set one `build.target` or `CARGO_BUILD_TARGET`; inspect environment overrides |
 | Package has no library target | Add a host-testable library to the firmware package |
 | Multiple binary targets | Set the board's `bin` to a declared binary; `default-run` does not select it for polyfw |
-| Saved board removed or state malformed | Run `polyfw select controller` to replace it, or `polyfw select --clear` |
+| Saved board removed or state malformed | Run `polyfw select led-demo` to replace it, or `polyfw select --clear` |
 | Unexpected release/dev image | Inspect saved profile with `info`; use an explicit profile or save a new selection |
 | ELF missing | Run the reported build command for that board and profile |
 | Host lint/test tries to compile hardware code | Separate host-testable library code and configure target-specific binary/test compilation |
-| A local dependency is missing from checks | Inspect `info --board controller` and canonical directory-glob matching |
+| A local dependency is missing from checks | Inspect `info --board led-demo` and canonical directory-glob matching |
 | `--locked` fails | Update and commit the owning workspace's lockfile with Cargo |
 | Probe missing or ambiguous | Check `polyfw probes`, host permissions and the explicit `--probe` selector |
 | VS Code changes disappear | Disable launch generation before maintaining that file yourself |

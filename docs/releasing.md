@@ -49,7 +49,7 @@ fixtures need `thumbv7em-none-eabihf`.
 2. Run `cargo check` to update the root package entry in `Cargo.lock`, then `just schema` to
    regenerate `polyfw.schema.json`. Its `$id` must be
    `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/polyfw.schema.json`, including
-   any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-board)
+   any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-firmware-targets)
    to the same version. Review the diffs; an ordinary version bump does not require dependency
    upgrades or a new Rust pin. Checks reject a stale schema or example link.
 3. Run the checks and inspect the published package contents:
