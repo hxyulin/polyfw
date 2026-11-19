@@ -34,6 +34,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false
+          # Override the action's default deny: fixtures emit unused-dependency warnings.
+          # The justfile's Clippy step still enforces -D warnings for our code.
           build-warnings: warn
       - uses: taiki-e/install-action@v2.90.5
         with:
