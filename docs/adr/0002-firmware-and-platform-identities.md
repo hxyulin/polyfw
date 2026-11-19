@@ -25,14 +25,11 @@ effective compiler flags, including linker arguments; do not combine lower-prece
 sources that Cargo would normally suppress. Target flags apply to MCU crates; host checks,
 build scripts and proc macros retain their host compilation settings.
 
-Prefer ordinary Cargo configuration as the integration boundary with rust-analyzer and
-other Rust tooling. This lets those tools read shared Cargo inputs without introducing
-custom editor check commands, and accepts Cargo's native precedence instead of forcing
-platform CPU settings above environment flags.
-
-Editor support provides the selected firmware's MCU analysis view. Host tests remain
-explicit host-target CLI operations; do not add a host editor mode or automatic
-host-versus-MCU analysis switching for test code.
+Dedicated rust-analyzer integration is outside this change. Do not generate its settings,
+custom editor commands, analysis modes or a new Cargo configuration layout for editor
+integration. Existing debugger launch generation is separate. Host tests remain explicit
+host-target CLI operations. Native Cargo precedence remains the compiler configuration
+contract, including environment overrides of file-based CPU flags.
 
 Each firmware must ultimately resolve to one explicit compilation target. If the platform
 does not specify one, Cargo must provide exactly one; missing or multiple defaults are

@@ -1,18 +1,18 @@
 # rust-analyzer support for firmware platforms
 
-Date: 2026-11-20. Research findings and design alternatives; file ownership remains undecided.
+Date: 2026-11-20. Historical integration research; dedicated rust-analyzer support is outside the current change.
 
 This investigates editor integration for the identities in [ADR 0002](../adr/0002-firmware-and-platform-identities.md): a Firmware identifies one package manifest and one Platform; Cargo supplies workspace ownership; a Platform supplies the chip and optional target/CPU overrides. Cache policy remains open. The current [editor implementation](../../src/vscode.rs) generates only debugger launch/attach entries. Its existing selection, disabled-generation and rollback contract is owned by [Design](../design.md#selection-and-editor-writes).
 
-The accepted editor scope is MCU analysis only. Host tests remain explicit host-target CLI operations; polyfw will not introduce a host editor mode or automatic test-context switching. Alternatives below explain tool limitations and do not expand that scope.
+The discussion ultimately excludes dedicated rust-analyzer integration. The settings, generated Cargo layouts and analysis-mode alternatives below are investigated options, not implementation plans. Cargo invocation-directory and configuration lookup rules remain relevant to the CLI design. Host tests remain explicit host-target CLI operations.
 
 ## Evidence and version boundary
 
 The latest official release observed was [2026-11-16, v0.3.3121](https://github.com/rust-lang/rust-analyzer/releases/tag/2026-11-16), commit `946b80a756ac1a1ef8882ec65e4f3199e38a23c7`. Configuration, reload and Cargo metadata citations below use that tag. Some project-model and VS Code files were retrievable only at official `master`; those citations explicitly retain `master` and are observations of source retrieved on this date, not verified release behavior. No editor session or CPU-sensitive firmware fixture was executed.
 
-## Preferred direction: ordinary Cargo configuration
+## Investigated direction: ordinary Cargo configuration
 
-The design discussion now prefers Cargo-native integration and accepts Cargo's native precedence, including environment `RUSTFLAGS` overriding file-based CPU settings. The file-ownership alternatives below are still proposals. This supersedes the earlier full LSP/custom-command proposal as the initial direction.
+The investigation considered Cargo-native integration and accepted Cargo's native precedence, including environment `RUSTFLAGS` overriding file-based CPU settings. The precedence decision remains applicable to CLI operations; the file-ownership alternatives below were not adopted.
 
 With `rust-analyzer.cargo.target` unset, the inspected implementation asks Cargo for effective configuration, reads `build.target`, and falls back to the host tuple if discovery fails or supplies no target. The configuration query accepts `cargo.configPath`; ordinary Cargo discovery needs no such setting. See [configuration loading, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/cargo_config_file.rs#L14-L39) and [target discovery, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/toolchain_info/target_tuple.rs#L10-L30). CPU settings remain Cargo rustflags; the successful Cargo cfg probe observes them, subject to the fallback limitation below.
 
@@ -29,6 +29,10 @@ For A, the generated entry starts with `include = ["config.base.toml"]`. For B, 
 The release refresh predicate recognizes `.cargo/config.toml`, `.cargo/config`, manifests, lockfiles and configured extra filenames; it does not automatically recognize `.polyfw-state/cargo.toml`. A uses the normal config-change path, but actual editor watch/reload behavior still needs verification. B should initially document manual **Reload Workspace** after selection. See [release refresh rules](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/reload.rs#L929-L959).
 
 This direction has one active platform per owning Cargo workspace. It leaves rust-analyzer's workspace-wide model and default workspace checks intact; mixed-target packages still require a compatible workspace convention or explicit manual editor settings. A selected Firmware does not automatically isolate its package. Distinct workspaces can retain distinct native Cargo defaults; several platforms for one workspace are not simultaneous semantic contexts.
+
+Cargo configuration lookup follows the invocation directory and its ancestors, not each selected package's directory. From a workspace root, `cargo build -p led-demo` does not load `firmwares/led-demo/.cargo/config.toml`; explicitly choosing a manifest is not a change of working directory either. Starting Cargo inside that member can load its local configuration, but the resulting configuration applies to the invocation, including dependencies. See [Cargo's hierarchy and workspace-member caveat](https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure).
+
+This distinguishes three scopes: a polyfw project may contain several independent Cargo workspaces; each workspace can supply its own native default target; an explicit rust-analyzer `cargo.target` overrides discovery for the session's linked projects. Member-level config files alone do not create independent per-package target views in rust-analyzer's workspace-root loading path. Leave the global editor override unset to retain differing native defaults between independent workspaces. See [workspace loading](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/reload.rs#L259-L375) and [native target discovery](https://github.com/rust-lang/rust-analyzer/blob/946b80a756ac1a1ef8882ec65e4f3199e38a23c7/crates/project-model/src/toolchain_info/target_tuple.rs#L14-L33).
 
 The current polyfw resolver also needs attention before either include-based layout can be implemented. [Cargo.lock](../../Cargo.lock) pins `cargo-config2` 0.1.45; its [configuration loader](https://github.com/taiki-e/cargo-config2/blob/v0.1.45/src/de.rs) has no include field and parses only files found by hierarchical discovery. A temporary-project probe through an existing, stale polyfw binary corroborated this: an include-only target failed with `expected one explicit build.target ... got []`, while a direct target in the including file resolved. The fixture used the executable's older registry model; no current-source rebuild or Cargo-precedence experiment was performed. Native Cargo inclusion and polyfw's effective-config reporting must agree before this becomes a supported layout.
 
@@ -139,7 +143,7 @@ Other editors can consume the same nested settings through LSP `initializationOp
 
 ## Proposed tradeoffs and unresolved checks
 
-- **Preferred direction:** express the active platform through ordinary Cargo configuration; preserve native environment precedence. File ownership between alternatives A and B remains a user decision. Keep CLI resolution and editor-visible Cargo inputs consistent.
+- **Current scope:** preserve native Cargo precedence for CLI operations. Dedicated editor integration and the generated configuration layouts above were not adopted.
 - **Inference:** an editor cache separate from firmware caches reduces build-lock contention at the cost of duplicated artifacts. `cargo.targetDir` affects initial build data and automatic checks, not only diagnostics. For shared caches, different targets have separate directories, but CPU variants sharing target/profile/binary names need separate artifact namespaces or copied final images. Cargo fingerprints do not give each selected Firmware a stable final ELF path.
 - **Proposed:** settle cache identity independently of Firmware naming: workspace plus platform is a candidate reuse boundary, while one cache per Firmware favors stable ownership and simpler cleanup. Renames, equivalent platforms, workspace collisions, `build.build-dir`, host checks and package cleaning need an explicit contract before implementation.
 - **Unverified:** generated settings refresh in a running VS Code session; selected-profile cfg fidelity; CPU cfg fallback handling; multiple sessions editing shared source; complete custom-command build-script/proc-macro output. None is promised by this research.
