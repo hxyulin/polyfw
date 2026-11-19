@@ -8,19 +8,20 @@ GitHub Actions publishes the crate through OIDC and completes the GitHub Release
 
 [The release workflow](../.github/workflows/release.yml) runs these stages:
 
-1. Validate the tag's SemVer, its match with `Cargo.toml` and the committed schema's `$id`,
-   the triggering source commit and that commit's ancestry on `main`.
-2. Run reusable CI, verify the packaged crate, and build/smoke-test all five binary targets.
-3. Upload archives and `SHA256SUMS` to a GitHub draft release.
-4. Publish to crates.io through OIDC, or verify an identical version already published there.
-5. Recheck the tag, crate checksum and assets, then make the GitHub Release public.
+1. Validate the tag's match with `Cargo.toml` and the committed schema's `$id`, the configuration
+   example's schema link, the triggering source commit and that commit's ancestry on `main`.
+2. Run reusable CI, then build, smoke-test and archive all five native binary targets.
+3. Generate `SHA256SUMS` and verify the packaged crate with `cargo publish --dry-run --locked`.
+4. Publish to crates.io through OIDC.
+5. Create the GitHub Release with `gh release create`, attaching the archives and `SHA256SUMS`.
 
-A release identifies one source commit and one complete `.crate` checksum. Keep the tag unchanged
-when retrying. The workflow reads the repository's pinned Rust compiler; same-tag runs are
-serialized without cancelling an active run.
+All jobs check out the validated source commit and use the repository's pinned Rust compiler.
+Same-tag runs are serialized without cancelling an active run. The workflow stops on failure;
+partial publication requires [manual recovery](#recover-a-failed-run).
 
 Prereleases go to both channels. GitHub marks them as prereleases and never sets them as `latest`.
-A stable release becomes `latest` unless a newer stable release is already public.
+Every stable release becomes `latest`. When publishing an older stable version, adjust `latest`
+manually afterward if a newer release should retain it.
 
 ## Configure the publisher
 
@@ -41,7 +42,7 @@ workflow or environment change. No long-lived crates.io token is needed in GitHu
 ## Prepare a version
 
 Use the development setup and checks in [Development](development.md). In particular, Rust test
-fixtures need `thumbv7em-none-eabihf`, and release tests need Node.js 18 or newer.
+fixtures need `thumbv7em-none-eabihf`.
 
 1. Update `[package].version` in `Cargo.toml`. Use a full stable version or a SemVer prerelease,
    for example `0.2.0-rc.1` or `0.2.0-beta.1`.
@@ -50,12 +51,11 @@ fixtures need `thumbv7em-none-eabihf`, and release tests need Node.js 18 or newe
    `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/polyfw.schema.json`, including
    any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-board)
    to the same version. Review the diffs; an ordinary version bump does not require dependency
-   upgrades or a new Rust pin. CI rejects a stale schema or example link.
+   upgrades or a new Rust pin. Checks reject a stale schema or example link.
 3. Run the checks and inspect the published package contents:
 
    ```sh
    just check
-   node --test .github/scripts/release.test.mjs
    cargo package --list --locked --allow-dirty
    cargo publish --dry-run --locked --allow-dirty
    git diff --check
@@ -87,30 +87,27 @@ git push origin v0.2.0
 `git status --short` must print nothing. For a candidate, prepare `version = "0.2.0-rc.1"` and
 use `v0.2.0-rc.1` in both tag commands. Push only the intended tag.
 
-The crate checksum covers the complete archive, including Cargo-generated VCS metadata. Reruns
-must use the same source commit; an existing version with different contents requires a new version.
-
 The workflow requires the tag version to equal the package version, the live tag to resolve to
-the triggering commit, and that commit to be reachable from `origin/main`. Track the `Release`
-run in GitHub Actions. After success, check the public GitHub assets and crates.io version;
-installation commands are in [README](../README.md#install).
+the triggering commit at validation, and that commit to be reachable from `origin/main`. Keep the
+tag unchanged. Track the `Release` run in GitHub Actions. After success, check the public GitHub
+assets and crates.io version; installation commands are in [README](../README.md#install).
 
 ## Assets and build targets
 
 | Target | Build and smoke-test environment | Archive |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | Native x86_64 manylinux2014 container | `.tar.gz` |
-| `aarch64-unknown-linux-gnu` | Native ARM64 manylinux2014 container | `.tar.gz` |
+| `x86_64-unknown-linux-gnu` | Native x86_64 Ubuntu 24.04 runner | `.tar.gz` |
+| `aarch64-unknown-linux-gnu` | Native ARM64 Ubuntu 24.04 runner | `.tar.gz` |
 | `x86_64-apple-darwin` | Native Intel macOS runner | `.tar.gz` |
 | `aarch64-apple-darwin` | Native ARM64 macOS runner | `.tar.gz` |
 | `x86_64-pc-windows-msvc` | Native x86_64 Windows runner | `.zip` |
 
-Linux containers preserve a glibc 2.17 baseline; JavaScript actions run on the newer Ubuntu host
-outside the container. Each built executable must report the expected `--version`, provide
-`--help` and emit a schema equal to the committed `polyfw.schema.json`, with the tag's version in
-its `$id`. These smoke tests need no firmware project or hardware.
-The full Rust suite runs on Linux through reusable CI; the five-platform binary matrix does not
-claim physical probe/debugger validation.
+Linux binaries are built and tested on Ubuntu 24.04; compatibility with older distributions is
+not guaranteed. Each built executable must report the expected `--version`, provide `--help` and
+emit a schema equal to the committed `polyfw.schema.json`, with the tag's version in its `$id`.
+These smoke tests need no firmware project or hardware. The full
+Rust suite runs on Linux through reusable CI; the five-platform binary matrix does not claim
+physical probe/debugger validation.
 
 Archives are named `polyfw-<target>.tar.gz` or `polyfw-<target>.zip`. Each contains a directory
 `polyfw-<target>/` holding `polyfw` (Windows: `polyfw.exe`), `README.md` and `LICENSE`.
@@ -128,38 +125,52 @@ Download `SHA256SUMS` beside the desired archive, then verify before extracting:
 | macOS | `shasum -a 256 <archive>` and compare its result with the manifest entry |
 | Windows PowerShell | `Get-FileHash <archive> -Algorithm SHA256` and compare with the manifest entry |
 
-The checksum manifest supports explicit downloads; the binstall metadata provides the asset URL
-and layout. The workflow verifies uploaded archive bytes against the manifest before publication.
+The checksum manifest covers the archives downloaded from the build jobs; the binstall metadata
+provides the asset URL and layout. Build artifacts remain available for 14 days for manual recovery.
 
 ## Release notes
 
-GitHub generates notes automatically. The comparison base is:
-
-- For a stable release: the highest earlier stable release, including changes across its
-  prerelease cycle.
-- For a prerelease: the preceding prerelease of the same major/minor/patch series, falling back
-  to the earlier stable release for the first candidate.
-
-The release body also carries a hidden source-commit and crate-checksum marker. Preserve it and
-the generated assets when retrying; the scripts use it to establish release identity.
+GitHub generates notes through its default release-notes comparison rules. The release title is
+the tag. Review or edit the generated notes on GitHub after publication.
 
 ## Recover a failed run
 
-GitHub and crates.io publish separately. Keeping GitHub as a draft until the crate is available
-lets a rerun finish the same version without exposing a release whose crate is missing.
+GitHub and crates.io publish separately. The workflow publishes the crate first, then creates the
+GitHub Release. It does not skip an existing crate version or resume a partially uploaded release.
+Before retrying a publishing job, inspect both channels to determine what already succeeded.
 
 | Failure point | Recovery |
 | --- | --- |
-| CI, packaging or binary build | Resolve a transient runner/network problem and rerun failed jobs. Source fixes require a new commit, version and tag. |
-| Partial draft upload | Rerun the same tag. Matching assets are reused; incomplete or changed draft assets can be replaced. |
-| OIDC authentication | Check the registered owner, repository, workflow filename and empty environment, then rerun. GitHub stays a draft. |
-| Crate upload or availability timeout | Inspect crates.io first: upload can succeed before polling times out. A rerun verifies the checksum and skips an identical existing version. |
-| GitHub publication after crate success | Rerun failed jobs. The final job verifies the crate and assets, then publishes the existing draft. |
-| Rerun after full success | Existing crate and public assets are verified and reused. Rebuilt archives do not replace public assets. |
-| Existing crate checksum differs, tag moved, or public assets conflict | Investigate the mismatch. Changed source needs a new version; preserve the published version and tag. |
+| CI, binary build or package dry run | Resolve a transient runner/network problem and rerun failed jobs. Source fixes require a new commit, version and tag. |
+| OIDC authentication before crate upload | Check the registered owner, repository, workflow filename and empty environment, then rerun failed jobs. |
+| Crate upload or availability timeout | Inspect crates.io first: upload can succeed before Cargo reports a failure. Rerun only if the version was not published; otherwise complete GitHub publication manually. |
+| Existing crate version, including a local first publish | Verify its version and source manually, then complete GitHub publication without rerunning `cargo publish`. Changed source requires a new version. |
+| GitHub Release creation or asset upload after crate success | Download this run's build artifacts and complete the GitHub Release manually as described below. |
+| Both channels succeeded | No recovery is needed. Do not rerun publication. |
 
-Use GitHub Actions **Re-run failed jobs**, or `gh run rerun <run-id> --failed`. Re-running all jobs
-is also supported.
+For failures before publication, use GitHub Actions **Re-run failed jobs**, or
+`gh run rerun <run-id> --failed`, after the checks above.
+
+For a crate that is already published, use GitHub CLI from a Linux checkout to recover the
+GitHub Release. Replace the example run ID and tag with those of the failed run:
+
+```sh
+release_run=123456789
+release_tag=v0.2.0
+gh run download "$release_run" --pattern 'binary-*' --dir dist/recovery
+mkdir dist/manual-release
+cp dist/recovery/binary-*/* dist/manual-release/
+cd dist/manual-release
+sha256sum -- *.tar.gz *.zip > SHA256SUMS
+gh release create "$release_tag" ./* --verify-tag --generate-notes --title "$release_tag" --latest
+```
+
+For a prerelease, replace `--latest` with `--prerelease --latest=false`. Use the archives from the
+failed run so the recovered release contains its tested binaries. If a draft or public release
+already exists, inspect it first: upload only missing assets with `gh release upload`, then publish
+a complete draft with `gh release edit <tag> --draft=false` and the appropriate prerelease/latest flags.
+Do not replace already public archives during recovery. Restore a newer stable release as `latest`
+with `gh release edit <newer-tag> --latest` when completing an older stable release.
 
 A rerun uses the old tag's workflow and source. For a source or workflow correction, merge the
 fix into `main` and prepare the next version. Registry yanking or withdrawing a release is a

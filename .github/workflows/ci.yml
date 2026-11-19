@@ -48,6 +48,3 @@ jobs:
           tool: just@1.58.0
 
       - run: just check
-
-      - name: Test release automation
-        run: node --test .github/scripts/release.test.mjs

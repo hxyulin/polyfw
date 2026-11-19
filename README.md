@@ -27,6 +27,8 @@ cargo install polyfw --locked
 Linux GNU and macOS on x86_64/aarch64, and Windows x86_64 MSVC. Each archive contains the
 executable, this README and the MIT license. Check the archive against the accompanying
 `SHA256SUMS`, extract it and put the executable on `PATH`.
+See [Releasing](https://github.com/inaku-Gyan/polyfw/blob/main/docs/releasing.md#assets-and-build-targets)
+for the build and test environments.
 
 To request a published prerelease, specify its version:
 

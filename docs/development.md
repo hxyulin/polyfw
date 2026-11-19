@@ -16,12 +16,7 @@ just check
 ```
 
 `just check` checks Rust formatting, runs Clippy for all targets with warnings denied, runs the
-Rust tests, and builds a release executable. Release automation has an additional test suite
-requiring Node.js 18 or newer:
-
-```sh
-node --test .github/scripts/release.test.mjs
-```
+Rust tests, and builds a release executable.
 
 Use `just --list` for repository recipes. `just fix` formats source and applies Clippy fixes;
 review those changes before committing. The Rust minimum in `Cargo.toml` is the supported compiler
@@ -54,11 +49,10 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/probe.rs`, `src/vscode.rs` | Hardware subprocesses and generated debugger settings |
 | `src/info.rs`, `src/ui.rs` | Read-only reports and terminal output |
 | `tests/project_root.rs`, `tests/standalone.rs` | Executable-level project isolation and external-tool boundaries |
-| `.github/scripts/release.mjs`, `.github/scripts/release.test.mjs` | Release identity, packaging, publication and recovery tests |
+| `.github/workflows/release.yml` | Tag validation, native binary archives and publication |
 
 Unit tests live beside their implementation. CLI parser tests check argument combinations;
-subprocess fixtures check commands without accessing hardware. Release tests use temporary Git
-repositories, archive fixtures and fake GitHub/registry APIs; they do not publish anything.
+subprocess fixtures check commands without accessing hardware.
 
 ## Maintain generated and public documentation
 
@@ -73,7 +67,7 @@ Each description has one source:
 | User operations and JSON output | `docs/usage.md` | Match CLI parsing, command behavior and serialization |
 | Architecture and invariants | `docs/design.md` | Update alongside changes to ownership, algorithms or boundaries |
 | Contributor workflow | This document | Match recipes and automation |
-| Publication procedure | `docs/releasing.md` | Match the tagged workflow and release scripts |
+| Publication procedure | `docs/releasing.md` | Match the tagged workflow |
 | Agent instructions | `AGENTS.md` | Keep repository-specific rules and conditional document pointers concise |
 
 The schema equality test rejects output that differs from the Rust generator. Editing the JSON
@@ -81,8 +75,8 @@ alone is not sufficient. Its `$id` uses the compile-time `CARGO_PKG_VERSION` and
 `v<VERSION>` source tag; `$schema` remains the Draft 7 dialect URI. Regenerate it after package
 version changes as well as model changes. Follow the
 [version preparation steps](releasing.md#prepare-a-version) to keep the committed schema and
-configuration guide's pinned link aligned; release tests check
-that link, and every release binary must emit the committed schema.
+configuration guide's pinned link aligned. The release workflow checks that link, and every
+release binary must emit the committed schema.
 
 The schema describes configuration structure; Cargo-dependent constraints still need runtime
 validation and prose explanation. Use a locally generated schema for an untagged development
@@ -113,15 +107,15 @@ fixtures establish generated arguments/settings, not physical device behavior.
 
 - For Rust, CLI help or model documentation changes, run `just check`. Regenerate the schema when
   its model descriptions, fields or package version change, and inspect the affected command help.
-- For release-script, workflow or packaging changes, also run the Node release tests and the
-  package/dry-run checks in [Releasing](releasing.md#prepare-a-version).
+- For workflow or packaging changes, run `just check` and the package/dry-run checks in
+  [Releasing](releasing.md#prepare-a-version).
 - For Markdown-only changes, verify links, heading anchors, configuration snippets and command
   claims against their sources. Run affected examples where practical.
 - Before committing, run `git diff --check` and review the complete diff, including generated files.
 
 ## Understand repository automation
 
-[CI](../.github/workflows/ci.yml) runs the Rust and release-script checks on pushes to `main` and
+[CI](../.github/workflows/ci.yml) runs the Rust checks on pushes to `main` and
 non-draft pull requests. Markdown-only changes are skipped. Marking a PR ready starts checks;
 returning it to draft cancels its current run. New commits cancel older runs for the same ref.
 The release workflow also calls CI before packaging and publishing.
