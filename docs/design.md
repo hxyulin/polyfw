@@ -1,193 +1,139 @@
-# polyfw design
+# Design
 
-The contract for the standalone CLI and optional project-local just wrappers.
-The internals may change while these commands and scopes stay the same. Usage is in the
-[README](../README.md).
+polyfw is an installed host CLI that operates on independently configured firmware projects.
+[Configuration](configuration.md) defines the input contract and [Usage](usage.md) describes
+observable command behavior. This document explains the boundaries that keep those operations
+consistent as the implementation changes.
 
-## Goals
+## Ownership and boundaries
 
-- Every physical board is an explicit, discoverable command target.
-- Board-model support lives in its BSP workspace, not copied into each firmware directory.
-- One small vocabulary selects, builds, checks, flashes and monitors a board.
-- Single-board work stays fast; an explicit all-boards check serves CI and review.
-- Commands fail early when the registry, Cargo packages and firmware binaries disagree.
+| Owner | Responsibility |
+| --- | --- |
+| Consuming project | Board registry, Cargo workspaces, Rust pins, targets, features, profiles and firmware sources |
+| polyfw | Root discovery, registry validation, board/profile selection, check planning, artifact paths and subprocess orchestration |
+| Cargo and rustup | Package resolution, compilation, tests, formatting and compiler selection within each workspace |
+| probe-rs | Probe access, flashing, reset and RTT sessions |
+| VS Code extension | Debug sessions using polyfw's generated launch configuration |
 
-Size reports, automatic competition-policy checks and checks of unrelated root packages are out of
-scope.
+An explicit registry keeps board-to-package and board-to-chip relationships independent of
+repository naming conventions. Per-workspace Cargo configuration allows BSPs with different
+CPUs or targets to coexist. polyfw does not copy consumer sources, own a shared compiler pin,
+or infer firmware from a directory layout.
 
-## Registry
+## Load only the context a command needs
 
-`polyfw.toml` is the source of board command targets. Its `bsps` table holds each board
-model's consuming workspace path and probe chip. The `boards` table holds each
-board's description, BSP, Cargo package and optional `bin`. A board's image is identified by
-`(BSP, package, bin)`; a BSP ID need not name a package, and its workspace may be virtual.
-`[config]` holds tool options. Its `local-dependencies` string array selects dependency package
-directories with globs. It defaults to `["./**"]`; an explicit empty array includes only selected
-firmware. `[config.vscode]` holds editor generation options and defaults to `enabled = true`.
-Missing tables preserve these defaults, and unknown fields are rejected at every level.
+The entry point parses CLI arguments before project discovery. Help, version and schema work
+without a project; schema is generated directly from the Rust configuration model. Probe listing
+only launches probe-rs from the caller's directory.
 
-Two alternatives were rejected:
+Project discovery selects an explicit root or the nearest ancestor containing `polyfw.toml`, then
+canonicalizes it. A selected invalid project is an error. Installation location, Git boundaries
+and the tool's own source directory do not participate in discovery.
 
-- Inferring boards from robot and board-model directory names hides package and chip relationships
-  in code, and a new layout would silently change command behavior.
-- One Cargo configuration at the repository root cannot serve two BSPs with different CPUs, and the
-  independent host package must not compile for an embedded target.
+Loading has two stages:
 
-Project commands validate configuration structure, relative workspace paths and BSP references.
-Commands needing Cargo then validate manifests and package membership and resolve target/CPU.
-Every firmware must have a library target, so host checks reach its logic. An explicit
-`bin` must name a binary target. Without one, the package must have exactly one binary target,
-counted regardless of required features and ignoring `default-run`. Validation stores the
-inferred name separately from `bin`, so inference never adds `--bin` to a build. Binaries in
-different packages of one BSP must have distinct names, because the ELF path has no package
-component.
+1. **Configuration:** deserialize with unknown-field rejection, validate IDs, workspace paths,
+   board-to-BSP references and dependency patterns.
+2. **Cargo resolution:** load metadata for every BSP, require registered firmware packages to
+   belong to their declared workspace, validate library/binary targets, then resolve target/CPU.
 
-`polyfw schema` prints JSON Schema from the Rust model without loading a project or Cargo metadata.
-`--output FILE` writes it to the requested path relative to the caller's current directory.
-The source checkout's committed `polyfw.schema.json` is checked against the generator by a test.
+Most project commands require both stages, even when they operate on one board. Selection clearing
+needs only configuration and does not read the old state. Reset also uses configuration alone,
+except when `--select` must generate a launch file and therefore resolve an ELF path.
 
-The project root is the explicit global `--project-root <DIR>`, or the nearest ancestor of the
-working directory containing `polyfw.toml`. Finding neither is an error. Explicit relative roots
-start at the caller's working
-directory; every selected root is canonicalized. Invalid explicit roots and discovered registries
-fail without trying another project. Registry paths, state, generated files and firmware caches
-all use the selected root. Root discovery does not depend on Cargo or Git workspaces or where
-polyfw was installed. Help, version, schema and probe listing do not load or discover a project.
+Cargo validation counts every declared binary, independently of required features or `default-run`.
+An omitted `bin` is inferred into `resolved_bin` for artifact lookup; it remains omitted from build
+arguments. Different packages sharing a BSP cannot produce the same binary name because their
+ELF paths would collide.
 
-Clearing selection reads configuration but does not inspect Cargo or old state. Reset also skips
-Cargo unless it saves a selection with VS Code generation enabled, which needs a resolved ELF path.
-Other project commands keep full Cargo validation. Dependency errors are reported at the action
-that requires the tool, preserving an already saved selection if that action fails.
+## Workspace and compiler isolation
 
-## Cargo configuration
+All Cargo processes use `runner::workspace_cargo` or `workspace_command`: they run from their
+owning workspace and remove inherited `RUSTUP_TOOLCHAIN`. This includes metadata, workspace
+discovery, configuration probes and test-fixture setup. The installed CLI's compiler must not
+become an implicit compiler override for a consumer.
 
-The consuming workspace owns each image's MCU flags and profiles. A BSP ID names a board model;
-its registry workspace path names the consuming workspace, which can be virtual. Firmware uses
-its own root workspace; BSP bring-up uses separate DM-MC02 and RM-C workspaces to isolate MCU
-features. Cargo runs from that workspace for builds and MCU lint.
+Configuration resolution uses `rustup which cargo` from the consuming workspace and gives
+`cargo-config2` that absolute path. Its adjacent rustc handles configuration probes, including
+when a bare `RUSTC=rustc` would otherwise invoke a rustup proxy. Effective target and CPU settings
+include Cargo's file hierarchy and environment overrides. The resolver reads compiler settings;
+it does not establish what an arbitrary compiler wrapper does with them.
 
-Target and CPU are derived from that workspace's effective Cargo configuration with
-`cargo-config2`, including ancestor files, Cargo home and environment overrides. The registry has
-no compiler-setting fields. A board needs one explicit build target so the ELF directory is
-unambiguous; `host-tuple` uses the resolved host triple, and a custom target uses its file stem.
-The last explicit CPU option is reported, or `null` when the compiler's default applies.
-Response-file rustflags are rejected rather than guessing their CPU settings. This reads compiler
-configuration; it does not check that a custom compiler wrapper preserves its arguments.
+Firmware Cargo commands additionally set `CARGO_TARGET_DIR` to the operating project's
+`target/firmware/<bsp>`. Host checks run from each owning workspace; when that workspace is also a
+registered BSP workspace, they reuse its isolated cache. Other workspaces retain their ordinary
+Cargo target-directory behavior. Building polyfw itself remains independent of these caches.
 
-Configuration probes select an absolute Cargo path with `rustup which cargo` from the consuming
-workspace, clearing inherited `RUSTUP_TOOLCHAIN`. The resolver uses that toolchain's adjacent
-rustc, including when `RUSTC=rustc` names the proxy, instead of inheriting the tool's compiler.
+## Check planning
 
-The installed binary is the primary interface. Project-local just wrappers pass their own
-absolute `--project-root` and forward arguments. The host-only polyfw crate has its own lockfile,
-Rust pin and formatting checks; no consumer keeps a source copy or symlink.
+`scope` resolves the selected firmware's local check graph from full Cargo metadata. It avoids a
+filesystem scan and uses canonical manifest paths as package identity, so same-named packages in
+different workspaces remain distinct.
 
-Every Cargo child clears inherited `RUSTUP_TOOLCHAIN` and runs from its operating workspace,
-including metadata and workspace discovery. This lets the tool and each consumer use their own
-pins. An outer `cargo +VERSION` or environment override does not override these children; use
-Cargo directly in the workspace when testing another compiler.
+1. Start from selected firmware package IDs. Traverse normal, build and dev edges across all
+   platforms and the workspace's resolved features.
+2. Exclude registry and Git sources. Select path packages whose canonical directories match
+   `config.local-dependencies`; keep traversing through excluded packages. Always select the
+   firmware itself.
+3. Seed host traversal in each reached package's own workspace to include its local test helpers
+   and their dev-dependencies.
+4. Normal dependencies preserve the current platform. Build/dev edges, proc-macros and their
+   dependencies switch to the host. A package reached in both roles receives both checks.
 
-## Check scope
+This produces a review/check scope, not the exact compilation graph of one image. Workspace
+feature unification can make optional dependencies reachable; the planner does not enable every
+feature. Unrelated root packages remain outside the scope.
 
-`fmt`, `lint`, `test` and `verify` cover the firmware package and its local dependencies. polyfw
-finds them from full [Cargo metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html),
-with no directory scan:
+Commands turn that graph into grouped stages:
 
-- Traversal starts at the firmware package IDs and follows normal, build and dev edges, over all
-  platforms and each workspace's resolved features.
-- Registry and Git sources are dropped before any filesystem check. A path package qualifies if
-  its canonical manifest's parent matches a `local-dependencies` directory glob. Relative patterns
-  start at the registry directory; absolute paths and leading `..` may include external packages.
-  The default `["./**"]` stays within the project. Symlinks match their physical location.
-  Exact directory patterns exclude descendants; `*` matches one level and `**` includes zero or
-  more levels. Traversal continues through excluded packages to find matching packages beyond them.
-- Selected firmware is always checked, even when no dependency patterns match it. Invalid globs
-  fail during registry validation; valid unmatched patterns select nothing.
-- Each reached package seeds host traversal in its own workspace, which adds its dev-dependencies.
-  Packages found only this way get host checks.
-- Normal edges keep the platform. Build and dev edges, proc-macros and their dependencies switch to
-  the host. A package reached both ways gets both.
-- Canonical manifest paths identify packages, so same-named packages in different workspaces stay
-  distinct.
+| Stage | Grouping and Cargo selection |
+| --- | --- |
+| Formatting | Once per owning workspace; select packages by name |
+| MCU Clippy | Once per BSP; select runtime package IDs with `--lib --bins` |
+| Host Clippy | Once per owning workspace; select package IDs with `--lib --tests --target host-tuple` |
+| Host tests | Once per owning workspace; default package test targets and doctests with `--target host-tuple` |
 
-The scope does not enable all features or reproduce one firmware's exact compilation graph. Feature
-unification across a workspace can make an optional dependency reachable. Unrelated root packages,
-including `polyfw`, keep their ordinary Cargo workflows.
+Grouped checks use each workspace's defaults and unify features across selected packages.
+They do not repeat each package with a separate feature set. Runtime libraries therefore need to
+support both the MCU and host checks. `verify` shares one scope across formatting, lint and test
+stages and stops at the first failure. Only checks and detailed `info` resolve this graph.
 
-Only the check commands and `info --board BOARD` resolve this scope. `select`, `clean`, `build` and
-the `info` overview need only registry validation.
+## Artifact identity
 
-## Check commands
+A firmware image is identified by its BSP, package and resolved binary. Board IDs may share that
+image. The BSP determines the workspace and cache; its effective target, chosen profile directory
+and binary determine the ELF path.
 
-Checks are grouped to keep `--all-boards` fast:
+`runner::firmware_elf_path` is the shared path function for information output, hardware commands
+and editor generation. Profile-directory mapping lives in `profile`; build arguments and lookup
+must keep the same mapping. No caller should reconstruct the path independently.
 
-- MCU lint: one command per BSP, `--lib --bins`, warnings denied.
-- Host lint: one command per owning workspace, `--lib --tests --target host-tuple`, with that
-  workspace's defaults and dev-dependencies.
-- Tests: one command per owning workspace with `--target host-tuple` and no target-selection flags,
-  so unit tests and doctests both run.
-- Formatting: `-p NAME` per owning workspace. Lint and tests select full package IDs instead, to
-  avoid ambiguous names.
+Builds operate once per board. Package cleaning uses the same isolated BSP cache and can affect
+multiple registered boards sharing a package; all-board cleaning runs once per BSP.
 
-A grouped command unifies features across its packages, and no package is checked again with its
-own feature set. Every runtime library must therefore build for both the MCU and the host.
+## Selection and editor writes
 
-`verify` validates the registry and shares one scope across its stages. It runs all format checks,
-then all lints, then all tests, and stops at the first failure.
+Saved selection is project-local TOML containing a board and optional explicit profile. Absence,
+malformed state and a stale board are distinct cases. Profile inheritance and one-time overrides
+are resolved before orchestration; saving with no explicit profile clears the previous profile.
 
-`clean` passes the BSP workspace as Cargo's directory and `target/firmware/<bsp>` as
-`CARGO_TARGET_DIR`, so it touches no other cache. There is no per-binary clean.
+A save may precede a build or hardware action. Its success is retained if the later action fails.
+With editor generation enabled, the save first replaces the launch file, then writes selection
+state. If the state write fails, it restores the previous launch bytes or removes the newly created
+file. Each replacement uses a temporary file, rename and cleanup guard. This is rollback between
+files, not a filesystem transaction covering both files.
 
-## Selection and profiles
+Clearing removes the managed launch file before the state, including a launch file left without
+state. Disabled generation leaves editor files untouched during both save and clear. polyfw owns
+the whole managed launch file; its entries have no build task and share the ELF resolver.
 
-The saved board and optional profile are TOML in `.polyfw-state/selected`. A profile is saved only
-when given explicitly. An unspecified profile is never passed to Cargo, so Cargo's own default
-applies, while an explicit dev is kept and passed. Display names omit an absent profile. Invalid
-saved state is an error, never treated as absent. Profiles are defined and validated by Cargo in the
-BSP workspace, not in the registry.
+## Hardware subprocesses
 
-Single-board commands inherit the saved profile unless a flag overrides it for that run.
-All-board commands use only explicit profiles.
+Hardware actions validate their selection and required existing ELF before starting probe-rs.
+They do not build or determine source/image freshness. Arguments are explicit and the child's
+terminal input/output are inherited.
 
-## Target layout
-
-Each consuming project's `target/firmware/<bsp>` holds the BSP workspace's shared firmware cache.
-Other workspaces use their ordinary target directory for host checks. Building polyfw uses this
-repository's own target directory and is separate from consuming firmware artifacts.
-
-The ELF path is `target/firmware/<bsp>/<target>/<profile-dir>/<bin>`, generated by one pure
-function that `build` and the ELF commands share. Unspecified, dev and test profiles map to
-`debug`, release and bench to `release`, and custom profiles to their own names.
-
-## Probe commands
-
-`run`, `flash`, `attach` and `reset` call the installed `probe-rs` CLI with the terminal's input and
-output; the contract is checked against 0.32.0. They never build, and the caller is responsible for
-source freshness. `run` uses `probe-rs run --verify`, `flash` uses
-`probe-rs download --verify --reset`, and `reset` needs no ELF.
-
-After selection and ELF checks, polyfw installs a Ctrl-C handler and starts probe-rs. Both processes
-share the terminal's process group or console, so probe-rs receives the original Ctrl-C and cleans
-up while polyfw waits. Launch failures keep the OS error, and only `NotFound` adds the
-installation link.
-
-## VS Code configuration
-
-With `config.vscode.enabled = true`, saving a selection generates `.vscode/launch.json` from the
-same resolved board and profile. The
-registry supplies the chip and binary; the shared ELF function supplies the path. There is no
-adapter wrapper, custom extension, variable provider or `preLaunchTask`, so the file is plain
-probe-rs configuration.
-
-polyfw owns the ignored file as a whole and replaces it on every successful save, including a
-`--select` whose command later fails. Each file is written by rename. A failed state write restores
-the previous launch file or removes the new one. Clearing removes the launch file before the state,
-and also removes a launch file left without state.
-
-With `enabled = false`, saving and clearing only operate on `.polyfw-state/selected`, without
-reading, generating or deleting editor files. Disabling generation leaves any existing launch
-file in place. This applies to `select` and every command's `--select` option.
-
-RTT channel 0 is set explicitly to `Defmt` and `NoBlockSkip`. Setting the channel disables DAP's
-format detection, so the format is written with the mode. The first supported scope is local Linux,
-one session and one probe; DAP needs an explicit probe selector when several are connected.
+polyfw installs a Ctrl-C handler that keeps the parent waiting while probe-rs receives the original
+terminal signal and cleans up. Process-launch errors retain their OS error; only a missing
+executable adds the installation hint. Automated tests use subprocess fixtures, so physical
+flashing, RTT and debugger behavior need separate hardware validation.

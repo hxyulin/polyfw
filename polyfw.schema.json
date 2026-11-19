@@ -2,37 +2,37 @@
   "$id": "https://raw.githubusercontent.com/inaku-Gyan/polyfw/main/polyfw.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "polyfw registry",
-  "description": "BSPs and the boards built from them. polyfw also checks each workspace and package through\nCargo metadata.",
+  "description": "Project configuration for registered embedded firmware.\nCargo metadata additionally validates BSP workspaces and firmware packages at runtime.",
   "type": "object",
   "properties": {
     "boards": {
-      "description": "Programmable boards, keyed by board ID, such as sentry-chassis.",
+      "description": "Programmable targets, keyed by board ID such as controller.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Board"
       },
       "minProperties": 1,
       "propertyNames": {
-        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
       }
     },
     "bsps": {
-      "description": "Board support packages, keyed by BSP ID, such as dm-mc02.",
+      "description": "Board models and their consuming workspaces, keyed by BSP ID such as controller-model.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Bsp"
       },
       "minProperties": 1,
       "propertyNames": {
-        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
       }
     },
     "config": {
-      "description": "Project-wide tool options. BSPs and boards describe the firmware separately.",
+      "description": "Optional tool settings; omitted values keep their defaults.",
       "allOf": [
         {
           "$ref": "#/definitions/Config"
@@ -55,25 +55,26 @@
   ],
   "definitions": {
     "Board": {
+      "description": "A programmable target referring to a BSP and firmware package.",
       "type": "object",
       "properties": {
         "bin": {
-          "description": "Firmware binary target; omit only when the package declares exactly one binary.",
+          "description": "Firmware binary target name. Omit only if the package declares exactly one binary,\ncounting feature-gated binaries independently of Cargo's default-run setting.",
           "type": [
             "string",
             "null"
           ]
         },
         "bsp": {
-          "description": "ID of a BSP in this registry.",
+          "description": "BSP ID declared in this registry's bsps table.",
           "type": "string"
         },
         "description": {
-          "description": "Name shown in board lists and prompts.",
+          "description": "Human-readable label for board lists and the picker.",
           "type": "string"
         },
         "package": {
-          "description": "Firmware package in the consuming workspace. It must have a library target.",
+          "description": "Cargo package name in the BSP workspace. It must declare a host-testable library\nand at least one firmware binary.",
           "type": "string"
         }
       },
@@ -85,14 +86,15 @@
       ]
     },
     "Bsp": {
+      "description": "A board model's consuming Cargo workspace and hardware identity.",
       "type": "object",
       "properties": {
         "chip": {
-          "description": "probe-rs chip name for hardware commands and VS Code, such as STM32H723VGTx.",
+          "description": "probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.",
           "type": "string"
         },
         "workspace": {
-          "description": "Cargo workspace directory, relative to the operating project root, without `..`.",
+          "description": "Cargo workspace directory relative to the project root. Use `.` for the root;\nabsolute paths and `..` are rejected. The workspace can be virtual.",
           "type": "string"
         }
       },
@@ -103,10 +105,11 @@
       ]
     },
     "Config": {
+      "description": "Project-wide checking and editor settings.",
       "type": "object",
       "properties": {
         "local-dependencies": {
-          "description": "Directory globs selecting reachable Cargo path dependencies for fmt, lint, test, verify\nand detailed info. Relative patterns start at the directory holding polyfw.toml;\nabsolute paths and leading `..` may include external packages. Match each package's\ncanonical Cargo.toml parent directory: `shared` selects only shared/Cargo.toml,\n`shared/*` selects immediate package directories, and `shared/**` includes shared and all\ndescendants. Existing literal directory prefixes are canonicalized. Selected firmware\nis always included; registry and Git packages never are.\nOmission defaults to [\"./**\"]. An empty array selects no dependencies, valid unmatched\npatterns select nothing, and invalid globs are errors. `..` must precede any wildcard.",
+          "description": "Directory globs selecting reachable path packages for fmt, lint, test, verify\nand detailed info. Defaults to [\"./**\"]; [] selects no dependency packages.\nThe firmware itself is always included; registry and Git dependencies are excluded.\n\nMatch each package's canonical Cargo.toml directory. Relative patterns start\nbeside polyfw.toml; absolute paths and leading `..` can include external packages.\n`shared` matches only that directory, `shared/*` its immediate children, and\n`shared/**` the directory and all descendants. Literal prefixes are canonicalized;\n`..` must precede wildcards. Unmatched valid patterns select nothing; invalid\npatterns are errors. These globs select checks, not Cargo's dependency builds.",
           "type": "array",
           "default": [
             "./**"
@@ -116,7 +119,7 @@
           }
         },
         "vscode": {
-          "description": "VS Code launch generation when a selection is saved or cleared.",
+          "description": "Editor-file management when saving or clearing board selection.",
           "allOf": [
             {
               "$ref": "#/definitions/VscodeConfig"
@@ -130,10 +133,11 @@
       "additionalProperties": false
     },
     "VscodeConfig": {
+      "description": "VS Code launch-file generation settings.",
       "type": "object",
       "properties": {
         "enabled": {
-          "description": "Manage the entire .vscode/launch.json when saving or clearing a selection.\nDefaults to true. When false, leave any existing launch.json untouched.",
+          "description": "Replace the entire .vscode/launch.json on selection save and delete it on clear.\nDefaults to true. Set false to leave editor files untouched, including existing\nfiles generated while this option was enabled.",
           "type": "boolean",
           "default": true
         }

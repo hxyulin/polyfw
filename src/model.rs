@@ -8,49 +8,51 @@ use crate::profile::Profile;
 
 const REGISTRY_NAME_PATTERN: &str = "^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
 
-/// BSPs and the boards built from them. polyfw also checks each workspace and package through
-/// Cargo metadata.
+/// Project configuration for registered embedded firmware.
+/// Cargo metadata additionally validates BSP workspaces and firmware packages at runtime.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "polyfw registry", extend(
     "$id" = "https://raw.githubusercontent.com/inaku-Gyan/polyfw/main/polyfw.schema.json"
 ))]
 pub(crate) struct Registry {
-    /// Project-wide tool options. BSPs and boards describe the firmware separately.
+    /// Optional tool settings; omitted values keep their defaults.
     #[serde(default)]
     pub(crate) config: Config,
 
-    /// Board support packages, keyed by BSP ID, such as dm-mc02.
+    /// Board models and their consuming workspaces, keyed by BSP ID such as controller-model.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
-        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
     pub(crate) bsps: BTreeMap<String, Bsp>,
-    /// Programmable boards, keyed by board ID, such as sentry-chassis.
+    /// Programmable targets, keyed by board ID such as controller.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
-        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
     pub(crate) boards: BTreeMap<String, Board>,
 }
 
+/// Project-wide checking and editor settings.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Config {
-    /// Directory globs selecting reachable Cargo path dependencies for fmt, lint, test, verify
-    /// and detailed info. Relative patterns start at the directory holding polyfw.toml;
-    /// absolute paths and leading `..` may include external packages. Match each package's
-    /// canonical Cargo.toml parent directory: `shared` selects only shared/Cargo.toml,
-    /// `shared/*` selects immediate package directories, and `shared/**` includes shared and all
-    /// descendants. Existing literal directory prefixes are canonicalized. Selected firmware
-    /// is always included; registry and Git packages never are.
-    /// Omission defaults to ["./**"]. An empty array selects no dependencies, valid unmatched
-    /// patterns select nothing, and invalid globs are errors. `..` must precede any wildcard.
+    /// Directory globs selecting reachable path packages for fmt, lint, test, verify
+    /// and detailed info. Defaults to ["./**"]; [] selects no dependency packages.
+    /// The firmware itself is always included; registry and Git dependencies are excluded.
+    ///
+    /// Match each package's canonical Cargo.toml directory. Relative patterns start
+    /// beside polyfw.toml; absolute paths and leading `..` can include external packages.
+    /// `shared` matches only that directory, `shared/*` its immediate children, and
+    /// `shared/**` the directory and all descendants. Literal prefixes are canonicalized;
+    /// `..` must precede wildcards. Unmatched valid patterns select nothing; invalid
+    /// patterns are errors. These globs select checks, not Cargo's dependency builds.
     #[serde(rename = "local-dependencies")]
     pub(crate) local_dependencies: Vec<String>,
-    /// VS Code launch generation when a selection is saved or cleared.
+    /// Editor-file management when saving or clearing board selection.
     pub(crate) vscode: VscodeConfig,
 }
 
@@ -63,11 +65,13 @@ impl Default for Config {
     }
 }
 
+/// VS Code launch-file generation settings.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct VscodeConfig {
-    /// Manage the entire .vscode/launch.json when saving or clearing a selection.
-    /// Defaults to true. When false, leave any existing launch.json untouched.
+    /// Replace the entire .vscode/launch.json on selection save and delete it on clear.
+    /// Defaults to true. Set false to leave editor files untouched, including existing
+    /// files generated while this option was enabled.
     pub(crate) enabled: bool,
 }
 
@@ -77,31 +81,36 @@ impl Default for VscodeConfig {
     }
 }
 
+/// A board model's consuming Cargo workspace and hardware identity.
 #[derive(Debug, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Bsp {
-    /// Cargo workspace directory, relative to the operating project root, without `..`.
+    /// Cargo workspace directory relative to the project root. Use `.` for the root;
+    /// absolute paths and `..` are rejected. The workspace can be virtual.
     pub(crate) workspace: String,
-    /// Target directory name resolved from the consuming workspace's Cargo configuration.
+    /// Resolved target directory name; derived from Cargo, not read from polyfw.toml.
     #[serde(skip)]
     pub(crate) target: String,
-    /// Last explicit target CPU in the resolved rustflags, or the compiler's default.
+    /// Last explicit target CPU in effective rustflags, or None for the compiler default.
     #[serde(skip)]
     pub(crate) cpu: Option<String>,
-    /// probe-rs chip name for hardware commands and VS Code, such as STM32H723VGTx.
+    /// probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.
     pub(crate) chip: String,
 }
 
+/// A programmable target referring to a BSP and firmware package.
 #[derive(Debug, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Board {
-    /// Name shown in board lists and prompts.
+    /// Human-readable label for board lists and the picker.
     pub(crate) description: String,
-    /// ID of a BSP in this registry.
+    /// BSP ID declared in this registry's bsps table.
     pub(crate) bsp: String,
-    /// Firmware package in the consuming workspace. It must have a library target.
+    /// Cargo package name in the BSP workspace. It must declare a host-testable library
+    /// and at least one firmware binary.
     pub(crate) package: String,
-    /// Firmware binary target; omit only when the package declares exactly one binary.
+    /// Firmware binary target name. Omit only if the package declares exactly one binary,
+    /// counting feature-gated binaries independently of Cargo's default-run setting.
     pub(crate) bin: Option<String>,
     #[serde(skip)]
     pub(crate) resolved_bin: String,

@@ -9,29 +9,31 @@ use clap::{
 use crate::profile::Profile;
 use crate::ui::color_enabled;
 
-/// Build, check, flash and monitor registered embedded Rust firmware.
+/// Build, check, flash and monitor embedded Rust firmware registered in polyfw.toml.
 ///
-/// A board ID, such as sentry-chassis, names one physical programmable target.
-/// Its BSP, such as dm-mc02, supplies the workspace and hardware configuration.
+/// A board ID names a programmable target. Its BSP identifies the consuming Cargo
+/// workspace and probe chip. Cargo owns compiler settings, dependencies and profiles.
 #[derive(Debug, Parser)]
 #[command(
     name = "polyfw",
     bin_name = "polyfw",
     version,
-    after_long_help = "Board selection:
-  Pass BOARD for this invocation, or omit it to use the saved default.
-  If no default is saved, choose a board interactively.
-  Commands accepting --select can save BOARD, or choose and save if BOARD is omitted.
-  Build/check/clean commands accept --all-boards; hardware commands operate on one board.
-  Interactive selection requires a terminal. Pass BOARD in scripts.
+    after_long_help = "Project and selection:
+  Find polyfw.toml in the current directory or an ancestor, or pass --project-root DIR.
+  Pass BOARD for one invocation, or omit it to use the saved board and profile.
+  If no board is saved, choose interactively; invalid saved state is an error.
+  Use select or --select to save a board. Saving keeps only an explicit profile.
+  Build/check/clean commands accept --all-boards; hardware commands use one board.
+  Pickers require a terminal. Use BOARD or --all-boards in scripts.
+  run, flash and attach use an existing image: run build after changing firmware source.
 
 Examples:
   polyfw info
-  polyfw select sentry-chassis
-  polyfw build --release
-  polyfw probes
-  polyfw run --release
+  polyfw select controller --release
   polyfw verify
+  polyfw build
+  polyfw probes
+  polyfw run
   polyfw verify --all-boards
   polyfw help build",
     styles = Styles::styled()
@@ -43,11 +45,11 @@ Examples:
         .context_value(AnsiColor::BrightCyan.on_default())
 )]
 pub(crate) struct Cli {
-    /// Project directory containing polyfw.toml.
+    /// Operate on the directory containing polyfw.toml.
     ///
-    /// Relative paths start at the caller's working directory. Without this option, search
-    /// that directory and its ancestors for the nearest polyfw.toml. Report an error if
-    /// no project is found. Project-free commands ignore this option.
+    /// Relative paths start at the caller's working directory. Otherwise, search
+    /// that directory and its ancestors for the nearest polyfw.toml. An invalid
+    /// selected project is an error. Help, version, schema and probes ignore this option.
     #[arg(
         long,
         value_name = "DIR",
@@ -57,7 +59,7 @@ pub(crate) struct Cli {
     )]
     pub(crate) project_root: Option<PathBuf>,
 
-    /// Control output colors.
+    /// Choose automatic colors, always-on colors or plain output.
     #[arg(
         long,
         value_enum,
@@ -105,25 +107,25 @@ impl Cli {
 
 #[derive(Clone, Debug, Args)]
 pub(crate) struct BoardArgs {
-    /// Board ID; use the saved default or prompt if omitted.
+    /// Board ID for this invocation; otherwise use the saved board or a picker.
     ///
-    /// Use an ID listed by polyfw info. An explicit or prompted board applies
-    /// only to this invocation unless --select is passed. Without BOARD, use the
-    /// saved default, or open the selector if no valid default is saved.
-    /// Interactive selection requires a terminal; pass BOARD in scripts.
+    /// Use an ID from polyfw info. A named or picked board is transient unless
+    /// --select is passed. The picker opens only when no board is saved; stale or
+    /// malformed saved state is an error, including with a one-time BOARD override.
+    /// Replace it with polyfw select BOARD or clear it with polyfw select --clear.
+    /// Pickers require a terminal; name a board in scripts.
     #[arg(verbatim_doc_comment)]
     pub(crate) board: Option<String>,
-    /// Save BOARD as the default, or choose and save a board.
+    /// Save the named board, or always open the picker and save its choice.
     ///
-    /// With BOARD, save it before running the command. Without BOARD, always open
-    /// the selector, even if a default is already saved. The selector requires a
-    /// terminal. The default is stored in .polyfw-state/selected.
+    /// Save before running the action. Without BOARD, the picker opens even if a
+    /// board is already saved and requires a terminal. State is stored in
+    /// .polyfw-state/selected; saving retains only an explicitly supplied profile.
     #[arg(short, long, verbatim_doc_comment)]
     pub(crate) select: bool,
-    /// Run this command for every registered board.
+    /// Operate on every registered board, ignoring saved board/profile state.
     ///
-    /// Include every board listed by polyfw info instead of using the saved
-    /// default. Cannot be combined with BOARD or --select.
+    /// Include every registered board. Conflicts with BOARD and --select.
     #[arg(
         short = 'a',
         long = "all-boards",
@@ -135,33 +137,35 @@ pub(crate) struct BoardArgs {
 
 #[derive(Debug, Default, Args)]
 pub(crate) struct ProbeArgs {
-    /// Board ID; use the saved default or prompt if omitted.
+    /// Board ID; otherwise use the saved board or pick one if no board is saved.
     pub(crate) board: Option<String>,
-    /// Save BOARD as the default, or choose and save a board.
+    /// Save BOARD before acting, or always open the picker and save its choice.
     #[arg(short, long)]
     pub(crate) select: bool,
-    /// Probe selector VID:PID[:SERIAL]; otherwise let probe-rs select the probe.
+    /// Use probe VID:PID[:SERIAL] for this session; otherwise let probe-rs choose.
     #[arg(long, value_name = "ID")]
     pub(crate) probe: Option<String>,
-    /// Debug interface speed in kHz; otherwise use probe-rs configuration or defaults.
+    /// Set debug interface speed in kHz for this session; otherwise use probe-rs settings.
     #[arg(long = "speed", value_name = "KHZ")]
     pub(crate) speed_khz: Option<NonZeroU32>,
-    /// Connect while asserting the target's reset line.
+    /// Assert the target's reset line while connecting.
     #[arg(long)]
     pub(crate) connect_under_reset: bool,
 }
 
 #[derive(Debug, Default, Args)]
 pub(crate) struct ProfileArgs {
-    /// Use Cargo's dev profile; shorthand for --profile dev.
+    /// Choose the dev profile explicitly; equivalent to --profile dev.
     #[arg(long, conflicts_with_all = ["release", "profile"])]
     pub(crate) dev: bool,
-    /// Use Cargo's release profile; shorthand for --profile release.
+    /// Choose the release profile; equivalent to --profile release.
     #[arg(short = 'r', long, conflicts_with = "profile")]
     pub(crate) release: bool,
-    /// Cargo profile; otherwise inherit the saved profile, except when saving a selection.
+    /// Use this Cargo profile instead of the saved profile.
     ///
-    /// An unspecified profile is not saved or passed to Cargo; Cargo defaults to dev.
+    /// Single-board actions otherwise inherit the saved profile. Saving a selection
+    /// and --all-boards use only an explicit profile. Without a resolved profile,
+    /// omit the Cargo flag and use its default.
     #[arg(long, value_name = "NAME")]
     pub(crate) profile: Option<Profile>,
 }
@@ -180,13 +184,13 @@ impl ProfileArgs {
 
 #[derive(Debug, Default, Args)]
 pub(crate) struct MonitorArgs {
-    /// RTT buffer policy; no-block-skip drops whole messages when the buffer is full.
+    /// Choose RTT buffer behavior; the default drops whole messages when full.
     #[arg(long, value_enum, default_value_t = RttChannelMode::NoBlockSkip)]
     pub(crate) rtt_channel_mode: RttChannelMode,
-    /// Let the target continue through resets without debugger capture.
+    /// Disable probe-rs capture of target resets.
     #[arg(long)]
     pub(crate) no_catch_reset: bool,
-    /// Disable debugger capture of HardFault exceptions.
+    /// Disable probe-rs capture of HardFault exceptions.
     #[arg(long)]
     pub(crate) no_catch_hardfault: bool,
 }
@@ -211,62 +215,63 @@ impl RttChannelMode {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Task {
-    /// Print the project configuration's JSON Schema.
+    /// Print or write JSON Schema for this version's polyfw.toml.
     ///
-    /// Does not load the registry or inspect BSP workspaces.
+    /// Works without a project, Rust installation or hardware tools.
     Schema {
-        /// Write to this file instead of stdout, relative to the current directory.
+        /// Write to FILE instead of stdout; relative paths start at the current directory.
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
     },
 
-    /// Show boards, existing firmware artifacts and the saved selection.
+    /// Inspect registered boards, existing images and the saved selection.
     ///
-    /// List BSPs and boards with dev/release ELF presence, plus the saved profile
-    /// when different. With --board [BOARD], show one board's configuration, ELF paths
-    /// and its configured local dependencies across workspaces. Omit BOARD after the flag to open
-    /// the interactive selector without saving the choice. ELF presence does not establish
-    /// source freshness or a match with the running firmware.
-    /// This query never saves a selection, builds or connects to hardware.
+    /// List boards and their referenced BSPs, with dev/release ELF presence and any
+    /// different saved profile. --board [BOARD] adds one board's resolved configuration,
+    /// ELF paths and local check dependencies. Omit BOARD after the flag to pick one
+    /// without saving. A stale saved board is reported; malformed state is an error.
+    /// This query does not build, write state/editor files or connect to hardware.
+    /// ELF presence establishes neither source freshness nor a match with running firmware.
     #[command(
         visible_alias = "i",
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw info
   polyfw info --board
-  polyfw info --board sentry-chassis
-  polyfw info --board sentry-chassis --json"
+  polyfw info --board controller
+  polyfw info --board controller --json"
     )]
     Info {
-        /// Show board details; omit BOARD to choose interactively without saving.
+        /// Show one board's details; omit BOARD to pick interactively without saving.
         #[arg(long, value_name = "BOARD")]
         board: Option<Option<String>>,
-        /// Print the corresponding view as JSON, without terminal formatting.
+        /// Write the selected view as JSON to stdout; prompts use stderr.
         #[arg(long)]
         json: bool,
     },
 
-    /// Save or clear the default board and firmware profile.
+    /// Save a board and explicit profile, or clear the saved selection.
     ///
-    /// Save BOARD and any explicitly specified profile for later commands.
-    /// Omit BOARD to open the interactive
-    /// selector, even when a default is already saved; this requires a terminal.
-    /// Use --clear to remove the default stored in .polyfw-state/selected.
+    /// Save BOARD in .polyfw-state/selected for later commands. Saving without a
+    /// profile clears the previous profile. With no BOARD, always open the picker;
+    /// this requires a terminal. When editor generation is enabled, saving also replaces
+    /// the whole VS Code launch file.
+    /// --clear removes saved state and the managed launch file without needing Cargo.
     #[command(
         visible_alias = "s",
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw select sentry-chassis
+  polyfw select controller --release
   polyfw select
   polyfw select --clear"
     )]
     Select {
-        /// Board ID to save; omit it to open the selector.
+        /// Save this board ID; otherwise open the picker.
         board: Option<String>,
-        /// Clear the saved default board.
+        /// Remove saved selection and the managed VS Code launch file.
         ///
-        /// Later board commands will prompt unless given BOARD or --all-boards.
-        /// Cannot be combined with BOARD or profile flags.
+        /// Does not parse the old state or load Cargo workspaces. Editor files are
+        /// untouched when generation is disabled. Conflicts with BOARD and profile flags.
         #[arg(
             long,
             conflicts_with_all = ["board", "dev", "release", "profile"],
@@ -277,37 +282,32 @@ pub(crate) enum Task {
         profile: ProfileArgs,
     },
 
-    /// Remove firmware build artifacts.
+    /// Clean a firmware package or all BSP firmware caches.
     ///
-    /// For one board, run cargo clean for its firmware package and keep the BSP
-    /// and dependency artifacts. With --all-boards, remove the full shared
-    /// firmware cache for every BSP, including its dependency artifacts.
-    /// Package cleaning also affects its other binaries and registered boards;
-    /// the notice lists every affected board in the BSP.
-    /// Cleaning is limited to target/firmware/<bsp>.
+    /// One board cleans its whole package, including other binaries and boards sharing
+    /// it in the BSP. --all-boards cleans each BSP's full cache, including dependencies.
+    /// The notice lists affected boards. All cleaning stays under target/firmware/<bsp>.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw clean sentry-chassis
+  polyfw clean controller
   polyfw clean --all-boards"
     )]
     Clean(BoardArgs),
 
-    /// Build firmware for one board or every registered board.
+    /// Build the selected board or every registered board with Cargo.
     ///
-    /// Inherit the saved profile, or leave it to Cargo when none is saved or with --all-boards.
-    /// Override with --dev, -r/--release or --profile NAME. An explicit registry bin selects
-    /// that binary; otherwise use Cargo's default targets and infer the package's only binary
-    /// for ELF commands.
-    /// Each board builds separately
-    /// in its BSP workspace, including with --all-boards. Artifacts are stored
-    /// under target/firmware/<bsp>.
+    /// Build each board separately from its BSP workspace with --locked and that
+    /// workspace's target/settings. An explicit registry bin selects --bin; otherwise
+    /// keep Cargo's default targets. Store artifacts under target/firmware/<bsp>.
+    /// Inherit a saved profile for one board, or override it with a profile flag.
+    /// --all-boards uses only the explicitly supplied profile.
     #[command(
         visible_alias = "b",
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw build
-  polyfw build --select sentry-chassis --release
+  polyfw build --select controller --release
   polyfw build --all-boards --release"
     )]
     Build {
@@ -317,21 +317,20 @@ pub(crate) enum Task {
         profile: ProfileArgs,
     },
 
-    /// List connected debug probes without selecting a board.
+    /// List connected probes using probe-rs; no project or Rust tools required.
     Probes,
 
-    /// Flash, verify and start an existing ELF, then monitor RTT/defmt logs.
+    /// Flash and verify an existing ELF, then start and monitor RTT/defmt.
     ///
-    /// Select the saved profile's ELF, or override with --dev, -r/--release or --profile. Build
-    /// explicitly with polyfw build first. Probe and speed selection are
-    /// delegated to probe-rs when omitted. Ctrl-C ends the probe-rs session;
-    /// it does not mean the target firmware has stopped.
+    /// Use the resolved board/profile image without building. Run polyfw build after
+    /// source changes. Omitted probe and speed options are delegated to probe-rs.
+    /// Ctrl-C ends the probe-rs session; firmware may continue running.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw run sentry-chassis
+  polyfw run controller
   polyfw run --release
-  polyfw run sentry-chassis --probe VID:PID:SERIAL --speed 4000"
+  polyfw run controller --probe VID:PID:SERIAL --speed 4000"
     )]
     Run {
         #[command(flatten)]
@@ -342,16 +341,16 @@ pub(crate) enum Task {
         monitor: MonitorArgs,
     },
 
-    /// Flash an existing ELF, verify the image, then reset the board and exit.
+    /// Flash and verify an existing ELF, reset the board, then exit.
     ///
-    /// Select the saved profile's ELF, or override with --dev, -r/--release or --profile.
-    /// Build explicitly with polyfw build first.
+    /// Use the resolved board/profile image without building. Run polyfw build after
+    /// source changes. This command does not start an RTT monitor.
     #[command(
         visible_aliases = ["f", "download", "d"],
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw flash sentry-chassis --release
-  polyfw flash --select sentry-chassis"
+  polyfw flash controller --release
+  polyfw flash --select controller"
     )]
     Flash {
         #[command(flatten)]
@@ -360,15 +359,15 @@ pub(crate) enum Task {
         profile: ProfileArgs,
     },
 
-    /// Monitor RTT/defmt using an existing ELF without building or flashing.
+    /// Attach an RTT/defmt monitor using the matching existing ELF.
     ///
-    /// The selected board and profile's ELF must match the running firmware.
-    /// Override with --dev, -r/--release or --profile NAME. A debug connection can briefly
-    /// halt the core, and --connect-under-reset asserts the reset line.
+    /// Does not build or flash. The resolved board/profile ELF must match the image
+    /// already running. Connecting can briefly halt the core; --connect-under-reset
+    /// asserts the reset line.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw attach sentry-chassis
+  polyfw attach controller
   polyfw attach --release --no-catch-reset"
     )]
     Attach {
@@ -380,72 +379,67 @@ pub(crate) enum Task {
         monitor: MonitorArgs,
     },
 
-    /// Reset one board without building or flashing.
+    /// Reset one board without building, flashing or requiring an ELF.
+    ///
+    /// Needs project configuration and probe-rs. Saving with --select also needs Cargo
+    /// when VS Code generation is enabled.
     Reset(ProbeArgs),
 
-    /// Format a board's firmware and its local dependencies.
+    /// Rewrite formatting for firmware and selected local dependencies.
     ///
-    /// Run cargo fmt and modify source files in place. Include the selected
-    /// firmware and its reachable path dependencies matched by local-dependencies in the registry.
-    /// Format each package's full set of targets, including its other binaries.
-    /// Format each package once from its owning workspace, also with --all-boards.
-    /// Use verify to check formatting without rewriting files.
+    /// Run cargo fmt in place for the firmware and reachable path packages matched
+    /// by config.local-dependencies. Include whole packages, including other binaries,
+    /// once per owning workspace. Use verify to check formatting without rewriting.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw fmt sentry-chassis
+  polyfw fmt controller
   polyfw fmt --all-boards"
     )]
     Fmt(BoardArgs),
 
-    /// Run Clippy for a board's firmware and its local dependencies.
+    /// Check firmware and selected local dependencies with MCU and host Clippy.
     ///
-    /// Check all binaries and libraries of firmware and local runtime packages
-    /// for the MCU, including other binaries in the firmware's package. Then
-    /// check all selected libraries and their unit tests on the host. Deny all warnings.
-    /// Include reachable path dependencies matched by local-dependencies in the registry.
-    /// Group MCU checks per BSP and host checks per owning workspace, using its defaults.
-    /// Include local test helpers recursively; deduplicate host work with --all-boards.
+    /// Deny warnings. Check runtime libraries and binaries for the MCU, then selected
+    /// libraries and tests for the host. config.local-dependencies filters reachable
+    /// path packages, including local test helpers. Other binaries in a package are
+    /// included. Group MCU checks per BSP and host checks per owning workspace,
+    /// using workspace defaults and deduplicating packages with --all-boards.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw lint sentry-chassis
+  polyfw lint controller
   polyfw lint --all-boards"
     )]
     Lint(BoardArgs),
 
-    /// Run host unit tests and doctests for a board and its local dependencies.
+    /// Run host tests and doctests for firmware and selected local dependencies.
     ///
-    /// Test the firmware library and its configured local path dependencies
-    /// on the development machine; no board hardware is required. Include local test helpers
-    /// recursively and use each owning workspace's defaults and dev-dependencies.
-    /// Use Cargo's default test targets and library doctests for each package,
-    /// including its other binaries when enabled by Cargo's test configuration.
-    /// Test each selected package once in its owning workspace, also with --all-boards.
+    /// No board hardware is required. Run each package once in its owning workspace
+    /// with --target host-tuple, workspace defaults and dev-dependencies. Use Cargo's
+    /// default test targets, including other binaries when their test settings allow.
+    /// config.local-dependencies filters reachable path packages and local test helpers.
     #[command(
         visible_alias = "t",
         verbatim_doc_comment,
         after_long_help = "Examples:
-  polyfw test sentry-chassis
+  polyfw test controller
   polyfw test --all-boards"
     )]
     Test(BoardArgs),
 
-    /// Check formatting, run Clippy and run host tests.
+    /// Check formatting, run MCU/host Clippy, then run host tests.
     ///
-    /// Check formatting without rewriting files, run MCU and host Clippy with
-    /// warnings denied, then run host unit tests and doctests. Stop at the first
-    /// failed command. Include the selected firmware and the local path dependencies matched by
-    /// local-dependencies across workspaces; with --all-boards, check all registered boards.
-    ///
-    /// Release builds and repository file hooks are separate steps.
-    /// Cargo may access the network to resolve dependencies.
+    /// Check without rewriting source, deny lint warnings, and stop at the first
+    /// failure. Include selected firmware and reachable path packages matched by
+    /// config.local-dependencies across workspaces. --all-boards checks every board.
+    /// Does not build a firmware image. Cargo may need network access for dependencies.
     #[command(
         visible_alias = "v",
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw verify
-  polyfw verify sentry-chassis
+  polyfw verify controller
   polyfw verify --all-boards"
     )]
     Verify(BoardArgs),
