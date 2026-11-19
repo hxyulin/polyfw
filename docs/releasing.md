@@ -6,7 +6,7 @@ GitHub Actions publishes the crate through OIDC and completes the GitHub Release
 
 ## Publication contract
 
-[The release workflow](../.github/workflows/release.yml) runs these stages:
+[The release workflow (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/workflows/release.yml) runs these stages:
 
 1. Validate the tag's match with `Cargo.toml` and the committed schema's `$id`, the configuration
    example's schema link, the triggering source commit and that commit's ancestry on `main`.
@@ -74,9 +74,11 @@ fixtures need `thumbv7em-none-eabihf`.
 
    `--allow-dirty` permits reviewing uncommitted preparation changes. The dry run builds the
    extracted crate without uploading. The actual publication uses a clean committed tree.
-   Package exclusions in `Cargo.toml` keep agent instructions, detailed guides, release automation
-   and local distribution output out of the crate. Source, README, license, embedded schema and
-   Rust tests remain included.
+   Package exclusions in `Cargo.toml` keep agent instructions, the glossary, `docs/adr/`,
+   `docs/research/`, release automation and local distribution output out of the crate. Source,
+   README, license, embedded schema, Rust tests and the remaining `docs/` guides are included.
+   Guide and README links use relative paths for offline reading; references to excluded
+   repository files use explicit online links.
 4. Commit the manifest, lockfile, generated schema and accompanying changes, then merge them
    into `main` through the normal review process.
 
@@ -121,12 +123,13 @@ Rust suite runs on Linux through reusable CI; the five-platform binary matrix do
 physical probe/debugger validation.
 
 Archives are named `polyfw-<target>.tar.gz` or `polyfw-<target>.zip`. Each contains a directory
-`polyfw-<target>/` holding `polyfw` (Windows: `polyfw.exe`), `README.md` and `LICENSE`.
+`polyfw-<target>/` holding `polyfw` (Windows: `polyfw.exe`), `README.md`, `LICENSE` and `docs/`
+with the same guides included in the crate, excluding `docs/adr/` and `docs/research/`.
 The tag selects the version. Binstall metadata in `Cargo.toml` specifies this URL and executable
-layout. Detailed guides and the schema file are not bundled in the binary archive; README links
-to online guides, and the executable can generate its matching schema. Editors can also fetch
-that schema directly from its fixed `$id` URL at the release tag. Preserve existing tags so
-older versions keep their original schema link; no separate Schema version is maintained.
+layout. README and the bundled guides use relative links for offline reading. The executable can
+generate its matching schema; the schema file is not bundled in the binary archive. Editors can
+also fetch that schema directly from its fixed `$id` URL at the release tag. Preserve existing tags
+so older versions keep their original schema link; no separate Schema version is maintained.
 
 Download `SHA256SUMS` beside the desired archive, then verify before extracting:
 

@@ -68,7 +68,7 @@ Each description has one source:
 | --- | --- | --- |
 | CLI help | Documentation comments and help strings in `src/cli.rs` | Inspect `just run help COMMAND` |
 | Configuration Schema | Model comments and schema annotations in `src/model.rs` | Run `just schema` and commit `polyfw.schema.json` |
-| Installation and navigation | `README.md` | Keep online links usable in source, crate and binary archives |
+| Installation and navigation | `README.md` | Keep relative guide links usable in source, crate and binary archives |
 | Configuration rules | `docs/configuration.md` | Match model defaults, Cargo requirements and validation |
 | User operations and JSON output | `docs/usage.md` | Match CLI parsing, command behavior and serialization |
 | Architecture and invariants | `docs/design.md` | Update alongside changes to ownership, algorithms or boundaries |
@@ -90,9 +90,10 @@ build, as described in [Configuration](configuration.md#register-the-firmware-ta
 
 Use English throughout, with the `firmware-demos` project for user-facing examples: `led-demo`
 and `buzzer-demo` share the `demo-board` BSP. Put complete explanations in their owning guide
-and link from other pages. README uses absolute GitHub links because detailed guides are not
-bundled in the crate or release archives. Links to `main` describe the current tree; users of
-older versions can browse the corresponding tag.
+and link from other pages. Use relative links between bundled guides and README so they work
+offline with the matching release. The [publication contract](releasing.md#prepare-a-version)
+defines which documentation is included. Use explicit online links for references to excluded
+repository files.
 
 ## Keep test fixtures isolated
 
@@ -122,13 +123,15 @@ fixtures establish generated arguments/settings, not physical device behavior.
 
 ## Understand repository automation
 
-[CI](../.github/workflows/ci.yml) runs the Rust checks on pushes to `main` and
-non-draft pull requests. Markdown-only changes are skipped. Marking a PR ready starts checks;
-returning it to draft cancels its current run. New commits cancel older runs for the same ref.
-The release workflow also calls CI before packaging and publishing.
+[CI (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/workflows/ci.yml) runs the
+Rust checks on pushes to `main` and non-draft pull requests. Markdown-only changes are skipped.
+Marking a PR ready starts checks; returning it to draft cancels its current run. New commits
+cancel older runs for the same ref. The release workflow also calls CI before packaging and
+publishing.
 
-[Dependabot](../.github/dependabot.yml) checks Cargo and GitHub Actions every Monday at 09:00
-Asia/Shanghai. Minor/patch updates are grouped per ecosystem; major updates are separate.
+[Dependabot (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/dependabot.yml)
+checks Cargo and GitHub Actions every Monday at 09:00 Asia/Shanghai. Minor/patch updates are
+grouped per ecosystem; major updates are separate.
 
 For publishing credentials, stable/prerelease tags, binary targets and retry rules, follow
 [Releasing](releasing.md).

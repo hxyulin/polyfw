@@ -25,9 +25,9 @@ cargo install polyfw --locked
 
 [GitHub Releases](https://github.com/inaku-Gyan/polyfw/releases) provide archives for
 Linux GNU and macOS on x86_64/aarch64, and Windows x86_64 MSVC. Each archive contains the
-executable, this README and the MIT license. Check the archive against the accompanying
-`SHA256SUMS`, extract it and put the executable on `PATH`.
-See [Releasing](https://github.com/inaku-Gyan/polyfw/blob/main/docs/releasing.md#assets-and-build-targets)
+executable, this README, the MIT license and the detailed guides in `docs/`. Check the archive
+against the accompanying `SHA256SUMS`, extract it and put the executable on `PATH`.
+See [Releasing](docs/releasing.md#assets-and-build-targets)
 for the build and test environments.
 
 To request a published prerelease, specify its version:
@@ -52,7 +52,7 @@ required by the consuming project. Flashing and monitoring also need
 ## Use a project
 
 Run `polyfw init` in your existing firmware project, then
-[edit the generated configuration](https://github.com/inaku-Gyan/polyfw/blob/main/docs/configuration.md#initialize-a-configuration)
+[edit the generated configuration](docs/configuration.md#initialize-a-configuration)
 to match its workspace, chip and firmware packages.
 The `firmware-demos` example registers `led-demo` and `buzzer-demo` as two firmware targets for
 the same physical board, sharing the `demo-board` BSP. From that project or any subdirectory:
@@ -85,14 +85,15 @@ polyfw verify --all-boards
 
 | Task | Guide |
 | --- | --- |
-| Register workspaces and boards; configure checks and editor generation | [Project configuration](https://github.com/inaku-Gyan/polyfw/blob/main/docs/configuration.md) |
-| Select, build, test, flash, debug and troubleshoot | [Usage](https://github.com/inaku-Gyan/polyfw/blob/main/docs/usage.md) |
-| Understand validation, dependency scopes and state management | [Design](https://github.com/inaku-Gyan/polyfw/blob/main/docs/design.md) |
-| Change polyfw, run checks and maintain generated documentation | [Development](https://github.com/inaku-Gyan/polyfw/blob/main/docs/development.md) |
-| Prepare and publish stable or prerelease versions | [Releasing](https://github.com/inaku-Gyan/polyfw/blob/main/docs/releasing.md) |
+| Register workspaces and boards; configure checks and editor generation | [Project configuration](docs/configuration.md) |
+| Select, build, test, flash, debug and troubleshoot | [Usage](docs/usage.md) |
+| Understand validation, dependency scopes and state management | [Design](docs/design.md) |
+| Change polyfw, run checks and maintain generated documentation | [Development](docs/development.md) |
+| Prepare and publish stable or prerelease versions | [Releasing](docs/releasing.md) |
 
-These links open the documentation on `main`, including when this README is read from an
-installed crate or binary archive. For a specific release, browse the same files at its Git tag.
-The CLI's `--help` and `schema` output describe the installed version.
+The crate and binary archives include these guides for offline reading alongside this README.
+Relative links open the bundled documentation for that version. Repository-only references and
+external resources require internet access. The CLI's `--help` and `schema` output also describe
+the installed version.
 
-Licensed under the [MIT license](https://github.com/inaku-Gyan/polyfw/blob/main/LICENSE).
+Licensed under the [MIT license](LICENSE).
