@@ -1,0 +1,144 @@
+{
+  "$id": "https://raw.githubusercontent.com/inaku-Gyan/polyfw/main/polyfw.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "polyfw registry",
+  "description": "BSPs and the boards built from them. polyfw also checks each workspace and package through\nCargo metadata.",
+  "type": "object",
+  "properties": {
+    "boards": {
+      "description": "Programmable boards, keyed by board ID, such as sentry-chassis.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Board"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      }
+    },
+    "bsps": {
+      "description": "Board support packages, keyed by BSP ID, such as dm-mc02.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Bsp"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "description": "Lowercase letters, digits and single hyphens, starting with a letter.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      }
+    },
+    "config": {
+      "description": "Project-wide tool options. BSPs and boards describe the firmware separately.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Config"
+        }
+      ],
+      "default": {
+        "local-dependencies": [
+          "./**"
+        ],
+        "vscode": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "bsps",
+    "boards"
+  ],
+  "definitions": {
+    "Board": {
+      "type": "object",
+      "properties": {
+        "bin": {
+          "description": "Firmware binary target; omit only when the package declares exactly one binary.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bsp": {
+          "description": "ID of a BSP in this registry.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Name shown in board lists and prompts.",
+          "type": "string"
+        },
+        "package": {
+          "description": "Firmware package in the consuming workspace. It must have a library target.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "bsp",
+        "package"
+      ]
+    },
+    "Bsp": {
+      "type": "object",
+      "properties": {
+        "chip": {
+          "description": "probe-rs chip name for hardware commands and VS Code, such as STM32H723VGTx.",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Cargo workspace directory, relative to the operating project root, without `..`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "workspace",
+        "chip"
+      ]
+    },
+    "Config": {
+      "type": "object",
+      "properties": {
+        "local-dependencies": {
+          "description": "Directory globs selecting reachable Cargo path dependencies for fmt, lint, test, verify\nand detailed info. Relative patterns start at the directory holding polyfw.toml;\nabsolute paths and leading `..` may include external packages. Match each package's\ncanonical Cargo.toml parent directory: `shared` selects only shared/Cargo.toml,\n`shared/*` selects immediate package directories, and `shared/**` includes shared and all\ndescendants. Existing literal directory prefixes are canonicalized. Selected firmware\nis always included; registry and Git packages never are.\nOmission defaults to [\"./**\"]. An empty array selects no dependencies, valid unmatched\npatterns select nothing, and invalid globs are errors. `..` must precede any wildcard.",
+          "type": "array",
+          "default": [
+            "./**"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "vscode": {
+          "description": "VS Code launch generation when a selection is saved or cleared.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/VscodeConfig"
+            }
+          ],
+          "default": {
+            "enabled": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "VscodeConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Manage the entire .vscode/launch.json when saving or clearing a selection.\nDefaults to true. When false, leave any existing launch.json untouched.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
