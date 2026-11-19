@@ -50,6 +50,112 @@ fn a_project_command_outside_a_project_reports_how_to_select_one() {
 }
 
 #[test]
+fn configuration_versions_are_checked_before_tools_state_and_unknown_fields() {
+    for (label, declarations, expected) in [
+        (
+            "missing-versions",
+            "",
+            "missing required top-level config-version",
+        ),
+        (
+            "missing-minimum",
+            "config-version = \"0.1.0\"\n",
+            "missing required top-level min-polyfw-version",
+        ),
+        (
+            "wrong-version-type",
+            "config-version = 1\nmin-polyfw-version = \"0.1.0\"\n",
+            "config-version must be a string",
+        ),
+        (
+            "invalid-version",
+            "config-version = \"0.1\"\nmin-polyfw-version = \"0.1.0\"\n",
+            "not a full SemVer",
+        ),
+        (
+            "inconsistent-versions",
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"999.0.0\"\n",
+            "exceeds config-version",
+        ),
+        (
+            "old-config",
+            "config-version = \"0.0.0\"\nmin-polyfw-version = \"0.0.0\"\n",
+            "is too old",
+        ),
+        (
+            "old-cli",
+            "config-version = \"999.0.0\"\nmin-polyfw-version = \"999.0.0\"\n",
+            "Upgrade the CLI",
+        ),
+    ] {
+        let fixture = Fixture::new(label);
+        fixture.project(true);
+        let path = fixture.root.join("polyfw.toml");
+        let source = fs::read_to_string(&path).unwrap();
+        let body = source.split_once("[config.vscode]").unwrap().1;
+        fs::write(
+            &path,
+            format!("future-field = true\n{declarations}[config.vscode]{body}"),
+        )
+        .unwrap();
+        fs::create_dir_all(fixture.root.join(".polyfw-state")).unwrap();
+        fs::write(
+            fixture.root.join(".polyfw-state/selected"),
+            "original state",
+        )
+        .unwrap();
+        fs::create_dir_all(fixture.root.join(".vscode")).unwrap();
+        fs::write(
+            fixture.root.join(".vscode/launch.json"),
+            "original editor file",
+        )
+        .unwrap();
+
+        for args in [
+            vec!["info", "--json"],
+            vec!["select", "--clear"],
+            vec!["reset", "board"],
+            vec!["reset", "board", "--select"],
+            vec!["build", "--select", "board"],
+        ] {
+            let output = fixture.command().args(args).output().unwrap();
+            assert!(!output.status.success());
+            assert!(output.stdout.is_empty());
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(error.contains(expected), "{error}");
+            assert!(error.contains(&path.display().to_string()), "{error}");
+            assert!(error.contains(env!("CARGO_PKG_VERSION")), "{error}");
+            assert!(!error.contains("unknown field"), "{error}");
+            assert_eq!(
+                fs::read_to_string(fixture.root.join(".polyfw-state/selected")).unwrap(),
+                "original state"
+            );
+            assert_eq!(
+                fs::read_to_string(fixture.root.join(".vscode/launch.json")).unwrap(),
+                "original editor file"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_compatible_version_does_not_bypass_strict_configuration_validation() {
+    let fixture = Fixture::new("compatible-unknown-field");
+    fixture.project(true);
+    let path = fixture.root.join("polyfw.toml");
+    let source = fs::read_to_string(&path).unwrap();
+    fs::write(&path, format!("future-field = true\n{source}")).unwrap();
+    let output = fixture
+        .command()
+        .args(["select", "--clear"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("unknown field `future-field`"), "{error}");
+}
+
+#[test]
 fn clearing_selection_needs_no_cargo_and_obeys_the_projects_vscode_setting() {
     for enabled in [true, false] {
         let fixture = Fixture::new(&format!("clear-{enabled}"));
@@ -156,7 +262,7 @@ impl Fixture {
         fs::write(
             self.root.join("polyfw.toml"),
             format!(
-                "[config.vscode]\nenabled = {vscode}\n\
+                "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[config.vscode]\nenabled = {vscode}\n\
                  [bsps.model]\nworkspace = \"missing\"\nchip = \"test-chip\"\n\
                  [boards.board]\ndescription = \"Fixture\"\nbsp = \"model\"\n\
                  package = \"application\"\n"

@@ -334,7 +334,7 @@ mod tests {
         ] {
             fs::write(
                 &registry_path,
-                format!("[config]\nlocal-dependencies = {patterns:?}\n{source}"),
+                format!("{source}\n[config]\nlocal-dependencies = {patterns:?}\n"),
             )
             .unwrap();
             let context = Context::load(context.root.clone()).unwrap();
@@ -392,7 +392,7 @@ mod tests {
         for pattern in [relative.join("**"), external.join("**")] {
             fs::write(
                 &registry,
-                format!("[config]\nlocal-dependencies = [\"./**\", {pattern:?}]\n{source}"),
+                format!("{source}\n[config]\nlocal-dependencies = [\"./**\", {pattern:?}]\n"),
             )
             .unwrap();
             let context = Context::load(context.root.clone()).unwrap();
@@ -1025,7 +1025,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("polyfw.toml"),
-            "[bsps.board-family]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.board-family]\nworkspace = \"bsp/test\"\n\
              chip = \"test\"\n\
              [boards.one]\ndescription = \"first board\"\n\
              bsp = \"board-family\"\npackage = \"board-a\"\nbin = \"board-a\"\n\

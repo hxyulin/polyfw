@@ -273,6 +273,7 @@ Unicode marks. `--color always` and `--color never` override automatic color sel
 | Symptom | Action |
 | --- | --- |
 | No `polyfw.toml` found | Run from the consuming project or pass `--project-root DIR` |
+| Configuration version missing or incompatible | Follow [configuration compatibility](configuration.md#configuration-compatibility); choose a compatible CLI or manually migrate the file |
 | A command fails on an unrelated BSP | Fix every registered BSP's workspace and Cargo configuration; most project commands validate the whole registry |
 | No explicit target or multiple targets | Set one `build.target` or `CARGO_BUILD_TARGET`; inspect environment overrides |
 | Package has no library target | Add a host-testable library to the firmware package |

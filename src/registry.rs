@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::Result;
 use crate::cargo_config;
+use crate::config_version;
 use crate::local_dependencies::LocalDependencies;
 use crate::model::{Metadata, Registry, SavedSelection, Selection};
 use crate::profile::Profile;
@@ -83,6 +84,7 @@ impl Context {
         let path = root.join(REGISTRY_FILE);
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+        config_version::preflight(&source, &path)?;
         let registry: Registry = toml::from_str(&source)
             .map_err(|error| format!("invalid registry {}: {error}", path.display()))?;
         registry.validate_structure(&root)?;
@@ -219,6 +221,12 @@ fn write_file(path: &Path, value: &[u8]) -> Result<()> {
 
 impl Registry {
     fn validate_structure(&self, root: &Path) -> Result<()> {
+        // Keep directly constructed registries subject to the same version contract.
+        config_version::check(
+            &self.config_version,
+            &self.min_polyfw_version,
+            &root.join(REGISTRY_FILE),
+        )?;
         LocalDependencies::new(root, &self.config.local_dependencies)?;
         if self.bsps.is_empty() {
             return Err("registry has no BSPs".into());
@@ -497,7 +505,7 @@ mod tests {
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(
             root.join(REGISTRY_FILE),
-            "[bsps.test]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
              [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
              package = \"test-board\"\n",
@@ -531,7 +539,7 @@ mod tests {
         .unwrap();
         fs::write(workspace.join("src/lib.rs"), "#![forbid(unsafe_code)]\n").unwrap();
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
-        let source = "[bsps.test]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
              [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
              package = \"test-board\"\n";
@@ -611,7 +619,7 @@ mod tests {
         fs::write(workspace.join("src/lib.rs"), "#![forbid(unsafe_code)]\n").unwrap();
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(workspace.join("src/bin/robot-image.rs"), "fn main() {}\n").unwrap();
-        let source = "[bsps.test]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
              [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
              package = \"test-board\"\n";
@@ -669,7 +677,7 @@ mod tests {
             )
             .unwrap();
         }
-        let source = "[bsps.first-family]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.first-family]\nworkspace = \"bsp/test\"\n\
              chip = \"test\"\n\
              [bsps.second-family]\nworkspace = \"bsp/test\"\n\
              chip = \"test\"\n\
@@ -740,7 +748,7 @@ mod tests {
         fs::write(workspace.join("firmware/src/main.rs"), "fn main() {}\n").unwrap();
 
         let mut registry: Registry = toml::from_str(
-            "[bsps.test]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
              [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
              package = \"test-board\"\n",
@@ -792,7 +800,7 @@ mod tests {
         for setting in ["target = \"thumbv7em-none-eabihf\"", "cpu = \"cortex-m7\""] {
             assert!(
                 toml::from_str::<Registry>(&format!(
-                    "boards = {{}}\n[bsps.test]\nworkspace = \".\"\nchip = \"test\"\n{setting}\n"
+                    "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nboards = {{}}\n[bsps.test]\nworkspace = \".\"\nchip = \"test\"\n{setting}\n"
                 ))
                 .is_err()
             );
@@ -811,22 +819,25 @@ mod tests {
 
     #[test]
     fn dependency_patterns_default_to_the_project_and_invalid_patterns_fail_before_cargo() {
-        let registry: Registry = toml::from_str("bsps = {}\nboards = {}\n").unwrap();
+        let registry: Registry = toml::from_str(
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n",
+        )
+        .unwrap();
         assert_eq!(registry.config.local_dependencies, ["./**"]);
         let registry: Registry =
-            toml::from_str("bsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n").unwrap();
+            toml::from_str("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n").unwrap();
         assert!(registry.config.local_dependencies.is_empty());
         for value in ["42", "\"shared/**\"", "[42]"] {
             assert!(
                 toml::from_str::<Registry>(&format!(
-                    "bsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = {value}\n"
+                    "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = {value}\n"
                 ))
                 .is_err()
             );
         }
         for pattern in ["[", "shared/**suffix", "*/../shared"] {
             let registry: Registry = toml::from_str(&format!(
-                "bsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = [{pattern:?}]\n"
+                "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = [{pattern:?}]\n"
             ))
             .unwrap();
             let error = registry
@@ -850,12 +861,12 @@ mod tests {
             "[config.vscode]\nenabled = true\n",
         ] {
             let registry: Registry =
-                toml::from_str(&format!("bsps = {{}}\nboards = {{}}\n{config}")).unwrap();
+                toml::from_str(&format!("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n{config}")).unwrap();
             assert_eq!(registry.config.local_dependencies, ["./**"]);
             assert!(registry.config.vscode.enabled);
         }
         let registry: Registry = toml::from_str(
-            "bsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n\
              [config.vscode]\nenabled = false\n",
         )
         .unwrap();
@@ -873,7 +884,7 @@ mod tests {
             "[config.vscode]\nenable = false\n",
         ] {
             assert!(
-                toml::from_str::<Registry>(&format!("bsps = {{}}\nboards = {{}}\n{config}"))
+                toml::from_str::<Registry>(&format!("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n{config}"))
                     .is_err(),
                 "{config}"
             );
@@ -891,6 +902,16 @@ mod tests {
             )
         );
         assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        for name in ["config-version", "min-polyfw-version"] {
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|field| field == name)
+            );
+            assert_eq!(schema["properties"][name]["type"], "string");
+        }
     }
 
     #[test]
@@ -934,6 +955,8 @@ mod tests {
         let context = Context {
             root: root.clone(),
             registry: Registry {
+                config_version: "0.1.0".into(),
+                min_polyfw_version: "0.1.0".into(),
                 config: crate::model::Config::default(),
                 bsps: BTreeMap::from([(
                     "test-bsp".into(),

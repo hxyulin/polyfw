@@ -138,6 +138,9 @@ files and firmware artifacts. Register both firmware targets against the same BS
 ```toml
 #:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json
 
+config-version = "0.1.0"
+min-polyfw-version = "0.1.0"
+
 [config]
 local-dependencies = ["./**"]
 
@@ -169,6 +172,8 @@ At least one BSP and one board are required.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
+| `config-version` | Yes | Full polyfw release version whose configuration contract the file follows |
+| `min-polyfw-version` | Yes | Minimum CLI release expected to interpret and execute this configuration correctly |
 | `bsps.ID.workspace` | Yes | Cargo workspace directory relative to the project root; `.` is valid, absolute paths and `..` are rejected |
 | `bsps.ID.chip` | Yes | probe-rs chip name used by hardware commands and VS Code |
 | `boards.ID.description` | Yes | Label shown in board lists and the selector |
@@ -184,12 +189,14 @@ It counts all declared binaries, including feature-gated targets, independently 
 Different packages in one BSP must use distinct binary names because their artifact paths share
 one BSP cache.
 
-The `#:schema` URL pins the full polyfw version. Run `polyfw --version` and replace the tag
-in the example with that version, including patch and prerelease suffixes: for example,
-`0.2.0-rc.1` uses `v0.2.0-rc.1`. Use the same version as the CLI that operates on the project.
+The `#:schema` URL pins the release named by `config-version`, including patch and prerelease
+suffixes: for example, `0.2.0-rc.1` uses `v0.2.0-rc.1`. A newer compatible CLI can operate on
+the project without changing the declarations or Schema URL. See
+[configuration compatibility](#configuration-compatibility) for the runtime check.
 Keep the fixed tag instead of `main` or `latest` so later releases cannot change its editor rules.
 
-For offline use or a development build, generate a local schema from the installed executable:
+For offline use or a development build, generate a local schema using the executable
+corresponding to the declared configuration contract:
 
 ```sh
 polyfw schema --output polyfw.schema.json
@@ -201,7 +208,9 @@ Then replace the remote directive in `polyfw.toml` with:
 #:schema ./polyfw.schema.json
 ```
 
-Regenerate the local file when changing polyfw versions. The command works without a project,
+Regenerate the local file when changing the configuration contract. `schema` emits the running
+executable's own model, even if a project declares an older contract; it does not select a
+historical schema. The command works without a project,
 Rust installation or network access. Its `$id` is the same versioned URL as the released file;
 `$schema` identifies the JSON Schema Draft 7 dialect, independently of the software version.
 
@@ -236,6 +245,55 @@ polyfw build --all-boards --release
 
 Connect the board before running `polyfw flash`. See [hardware commands](usage.md#flash-and-monitor)
 for probe selection and image freshness.
+
+## Configuration compatibility
+
+Both top-level version declarations are required, even when the optional `config` tables are
+omitted. Use complete SemVer release versions, including any prerelease suffix, rather than
+version ranges. `config-version` names the CLI release whose configuration contract the file
+follows; it is neither the firmware package version nor the last CLI that ran on the project.
+`min-polyfw-version` is the oldest CLI expected to interpret and execute the configuration
+correctly. Neither declaration changes merely because the operating CLI is upgraded.
+
+The current configuration floor and conservative minimum CLI recommendation are both `0.1.0`.
+Each CLI compares version precedence, ignoring build metadata, and requires all three conditions:
+
+```text
+min-polyfw-version <= config-version
+CLI.oldest-supported-config-version <= config-version
+min-polyfw-version <= CLI.version
+```
+
+A newer CLI can read an older configuration while that contract remains supported. An older CLI
+can also read a newer contract when the file's minimum CLI allows it and the remaining content
+passes validation. For example, a hypothetical `config-version = "0.3.0"` with
+`min-polyfw-version = "0.2.0"` allows CLI `0.2.0` when the file uses only behavior that CLI
+understands. A version declaration does not make unknown fields or invalid values acceptable.
+
+Missing declarations, invalid versions, inconsistent declarations and incompatible versions
+stop every command that loads project configuration, before Cargo, state writes or hardware
+actions. Errors identify the file and relevant versions. Select a compatible CLI or manually
+migrate the configuration; changing a version string alone does not migrate its contents.
+There is no automatic migration, bypass or inferred version for existing files. Help, version,
+`schema` and `probes` keep their [project-free behavior](usage.md#choose-a-project).
+
+For an existing file without declarations, review its fields and their meanings against the
+chosen release's guide, then add both declarations at the file's top level and align the editor
+Schema URL. Earlier CLI implementations that reject these fields cannot operate on the new
+configuration.
+
+Compatibility is maintained according to the change:
+
+| Change | Required action |
+| --- | --- |
+| No configuration contract change | Keep the compatibility baselines and existing declarations unchanged |
+| Adopt a new field or capability | Update the file's contract version and minimum CLI to releases that support it; newer CLIs retain their configuration floor while old files still work |
+| Old fields, meanings or default behavior cannot be preserved | The CLI raises its configuration floor; the release also raises the recommended minimum CLI if older CLIs cannot correctly execute the new contract |
+
+Each release provides conservative authoring guidance. polyfw does not infer minimum versions
+per field. Older contracts are retained only while the current implementation preserves their
+meaning; support is dropped when it would require legacy aliases, old-default branches or
+historical parsers. No release promises permanent forward or backward compatibility.
 
 ## Select local dependencies for checks
 

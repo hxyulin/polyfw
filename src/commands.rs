@@ -1201,7 +1201,7 @@ mod tests {
             )
             .unwrap();
             let mut registry = String::from(
-                "[bsps.test-bsp]\nworkspace = \"bsp/test\"\n\
+                "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test-bsp]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
                  [boards.test-board]\ndescription = \"test board\"\nbsp = \"test-bsp\"\n\
                  package = \"test-board\"\n",
@@ -1359,6 +1359,8 @@ mod tests {
         Context {
             root,
             registry: Registry {
+                config_version: "0.1.0".into(),
+                min_polyfw_version: "0.1.0".into(),
                 config: crate::model::Config::default(),
                 bsps: BTreeMap::from([(
                     "test-bsp".into(),

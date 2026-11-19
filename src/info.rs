@@ -141,7 +141,6 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::process::Command;
 
     use super::*;
 
@@ -400,7 +399,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("polyfw.toml"),
-            "[bsps.test]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
              chip = \"test-chip\"\n\
              [boards.one]\ndescription = \"first board\"\nbsp = \"test\"\n\
              package = \"board-fw\"\n\
@@ -408,8 +407,7 @@ mod tests {
              package = \"other-fw\"\n",
         )
         .unwrap();
-        let output = Command::new("cargo")
-            .current_dir(&workspace)
+        let output = crate::runner::workspace_cargo(&workspace)
             .args(["generate-lockfile", "--offline"])
             .output()
             .unwrap();

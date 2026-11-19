@@ -46,10 +46,20 @@
           "enabled": true
         }
       }
+    },
+    "config-version": {
+      "description": "Full polyfw release version whose configuration contract this file follows.\nIncludes any prerelease suffix. Does not change merely because a newer CLI runs.",
+      "type": "string"
+    },
+    "min-polyfw-version": {
+      "description": "Oldest polyfw CLI release expected to interpret and execute this configuration\ncorrectly. Must not exceed config-version. The CLI also checks its own\noldest supported configuration version before loading the registry.",
+      "type": "string"
     }
   },
   "additionalProperties": false,
   "required": [
+    "config-version",
+    "min-polyfw-version",
     "bsps",
     "boards"
   ],

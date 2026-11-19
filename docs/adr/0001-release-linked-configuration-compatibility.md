@@ -15,6 +15,6 @@ exact CLI-version equality would force configuration updates for compatible rele
 chosen policy accepts the maintenance cost of explicit compatibility declarations and tests,
 with no migration adapters, automatic migration or bypass.
 
-The complete [planned contract](../design.md#configuration-compatibility-planned) covers the
-required fields, validation order, version-update rules, editor Schema and verification.
-Implementation is pending.
+The [configuration guide](../configuration.md#configuration-compatibility) owns the public
+contract; [Design](../design.md#configuration-compatibility) describes the loading boundary
+and implementation policy.

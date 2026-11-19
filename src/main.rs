@@ -3,6 +3,7 @@
 mod cargo_config;
 mod cli;
 mod commands;
+mod config_version;
 mod info;
 mod local_dependencies;
 mod model;

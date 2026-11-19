@@ -46,12 +46,23 @@ fixtures need `thumbv7em-none-eabihf`.
 
 1. Update `[package].version` in `Cargo.toml`. Use a full stable version or a SemVer prerelease,
    for example `0.2.0-rc.1` or `0.2.0-beta.1`.
+   Review `MIN_SUPPORTED_CONFIG_VERSION` and `MIN_REQUIRED_CLI_VERSION` in
+   `src/config_version.rs` according to the
+   [configuration compatibility policy](configuration.md#configuration-compatibility).
+   Keep them unchanged for compatible releases. Advance the configuration floor when older
+   contracts no longer retain their meaning, and advance the authoring minimum when newer
+   configurations need newer CLI capabilities. Retained compatibility needs representative
+   fixtures; a package version bump alone does not justify either compatibility bump.
 2. Run `cargo check` to update the root package entry in `Cargo.lock`, then `just schema` to
    regenerate `polyfw.schema.json`. Its `$id` must be
    `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/polyfw.schema.json`, including
    any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-firmware-targets)
    to the same version. Review the diffs; an ordinary version bump does not require dependency
    upgrades or a new Rust pin. Checks reject a stale schema or example link.
+   Set the example's `config-version` to the release being prepared and its
+   `min-polyfw-version` to the conservative authoring minimum. Update the documented
+   compatibility baselines if their constants changed. Existing consumer configurations do
+   not need restamping merely because a compatible CLI was released.
 3. Run the checks and inspect the published package contents:
 
    ```sh

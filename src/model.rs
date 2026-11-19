@@ -20,6 +20,16 @@ const REGISTRY_NAME_PATTERN: &str = "^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
     )
 ))]
 pub(crate) struct Registry {
+    /// Full polyfw release version whose configuration contract this file follows.
+    /// Includes any prerelease suffix. Does not change merely because a newer CLI runs.
+    #[serde(rename = "config-version")]
+    pub(crate) config_version: String,
+    /// Oldest polyfw CLI release expected to interpret and execute this configuration
+    /// correctly. Must not exceed config-version. The CLI also checks its own
+    /// oldest supported configuration version before loading the registry.
+    #[serde(rename = "min-polyfw-version")]
+    pub(crate) min_polyfw_version: String,
+
     /// Optional tool settings; omitted values keep their defaults.
     #[serde(default)]
     pub(crate) config: Config,

@@ -29,7 +29,7 @@ fn firmware_paths_and_cpu_information_follow_the_effective_cargo_configuration()
     .unwrap();
     fs::write(
         root.join("polyfw.toml"),
-        "[bsps.model]\nworkspace = \".\"\nchip = \"test-chip\"\n\
+        "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.model]\nworkspace = \".\"\nchip = \"test-chip\"\n\
          [boards.board]\ndescription = \"Fixture\"\nbsp = \"model\"\n\
          package = \"application\"\n",
     )
@@ -133,7 +133,7 @@ fn cargo_commands_use_each_workspaces_pin_instead_of_the_tools_inherited_toolcha
     fs::write(firmware.join("src/main.rs"), "fn main() {}\n").unwrap();
     fs::write(
         firmware.join("polyfw.toml"),
-        "[config]\nlocal-dependencies = [\"../common\"]\n\
+        "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[config]\nlocal-dependencies = [\"../common\"]\n\
              [bsps.model]\nworkspace = \".\"\n\
              chip = \"test-chip\"\n\
              [boards.board]\ndescription = \"Fixture\"\nbsp = \"model\"\n\
@@ -228,7 +228,7 @@ fn one_tool_keeps_two_projects_selections_and_debug_files_independent() {
         fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(
             project.join("polyfw.toml"),
-            "[bsps.model]\nworkspace = \".\"\n\
+            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.model]\nworkspace = \".\"\n\
              chip = \"STM32H723VGTx\"\n\
              [boards.board]\ndescription = \"Fixture\"\nbsp = \"model\"\n\
              package = \"application\"\n",
