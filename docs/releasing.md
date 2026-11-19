@@ -6,7 +6,7 @@ GitHub Actions publishes the crate through OIDC and completes the GitHub Release
 
 ## Publication contract
 
-[The release workflow (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/workflows/release.yml) runs these stages:
+Tagged releases run these stages:
 
 1. Validate the tag's match with `Cargo.toml` and the committed schema's `$id`, the configuration
    example's schema link, the triggering source commit and that commit's ancestry on `main`.
@@ -74,11 +74,9 @@ fixtures need `thumbv7em-none-eabihf`.
 
    `--allow-dirty` permits reviewing uncommitted preparation changes. The dry run builds the
    extracted crate without uploading. The actual publication uses a clean committed tree.
-   Package exclusions in `Cargo.toml` keep agent instructions, the glossary, `docs/adr/`,
-   `docs/research/`, release automation and local distribution output out of the crate. Source,
-   README, license, embedded schema, Rust tests and the remaining `docs/` guides are included.
-   Guide and README links use relative paths for offline reading; references to excluded
-   repository files use explicit online links.
+   Source, README, license, embedded schema, Rust tests and the `docs/` guides are included.
+   `Cargo.toml` defines the excluded files, including `docs/adr/` and `docs/research/`.
+   Guide and README links use relative paths for offline reading.
 4. Commit the manifest, lockfile, generated schema and accompanying changes, then merge them
    into `main` through the normal review process.
 

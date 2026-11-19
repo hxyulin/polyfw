@@ -92,8 +92,7 @@ polyfw verify --all-boards
 | Prepare and publish stable or prerelease versions | [Releasing](docs/releasing.md) |
 
 The crate and binary archives include these guides for offline reading alongside this README.
-Relative links open the bundled documentation for that version. Repository-only references and
-external resources require internet access. The CLI's `--help` and `schema` output also describe
-the installed version.
+Relative links open the bundled documentation for that version. The CLI's `--help` and `schema`
+output also describe the installed version.
 
 Licensed under the [MIT license](LICENSE).

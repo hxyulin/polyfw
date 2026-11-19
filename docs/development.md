@@ -90,10 +90,10 @@ build, as described in [Configuration](configuration.md#register-the-firmware-ta
 
 Use English throughout, with the `firmware-demos` project for user-facing examples: `led-demo`
 and `buzzer-demo` share the `demo-board` BSP. Put complete explanations in their owning guide
-and link from other pages. Use relative links between bundled guides and README so they work
-offline with the matching release. The [publication contract](releasing.md#prepare-a-version)
-defines which documentation is included. Use explicit online links for references to excluded
-repository files.
+and link from other pages when further reading is needed. Keep simple explanations in prose
+and omit unnecessary background references. Use relative links between bundled guides and
+README so they work offline with the matching release. Keep external links only when the task
+requires outside documentation.
 
 ## Keep test fixtures isolated
 
@@ -123,15 +123,8 @@ fixtures establish generated arguments/settings, not physical device behavior.
 
 ## Understand repository automation
 
-[CI (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/workflows/ci.yml) runs the
-Rust checks on pushes to `main` and non-draft pull requests. Markdown-only changes are skipped.
-Marking a PR ready starts checks; returning it to draft cancels its current run. New commits
-cancel older runs for the same ref. The release workflow also calls CI before packaging and
-publishing.
-
-[Dependabot (online)](https://github.com/inaku-Gyan/polyfw/blob/main/.github/dependabot.yml)
-checks Cargo and GitHub Actions every Monday at 09:00 Asia/Shanghai. Minor/patch updates are
-grouped per ecosystem; major updates are separate.
+CI runs `just check` on pushes to `main` and non-draft pull requests, skipping Markdown-only
+changes. Releases run the same checks before packaging and publishing.
 
 For publishing credentials, stable/prerelease tags, binary targets and retry rules, follow
 [Releasing](releasing.md).

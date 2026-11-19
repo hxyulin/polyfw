@@ -5,9 +5,6 @@ polyfw is an installed host CLI that operates on independently configured firmwa
 observable command behavior. This document explains the boundaries that keep those operations
 consistent as the implementation changes.
 
-The accepted release-linked configuration compatibility decision is recorded in
-[ADR 0001 (online)](https://github.com/inaku-Gyan/polyfw/blob/main/docs/adr/0001-release-linked-configuration-compatibility.md).
-
 ## Ownership and boundaries
 
 | Owner | Responsibility |
@@ -60,8 +57,6 @@ ELF paths would collide.
 
 The [configuration guide](configuration.md#configuration-compatibility) owns the public
 version declarations, compatibility rules, editor Schema policy and migration expectations.
-The [glossary (online)](https://github.com/inaku-Gyan/polyfw/blob/main/GLOSSARY.md) distinguishes
-the two directions of compatibility.
 
 `config_version` owns SemVer comparison and the two release-maintained compatibility baselines.
 Configuration loading first parses valid TOML and checks its version declarations before strict
