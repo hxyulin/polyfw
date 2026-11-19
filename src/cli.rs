@@ -438,8 +438,8 @@ pub(crate) enum Task {
     /// failed command. Include the selected firmware and the local path dependencies matched by
     /// local-dependencies across workspaces; with --all-boards, check all registered boards.
     ///
-    /// Release builds, dependency policy checks and repository file hooks are
-    /// separate steps. Cargo may access the network to resolve dependencies.
+    /// Release builds and repository file hooks are separate steps.
+    /// Cargo may access the network to resolve dependencies.
     #[command(
         visible_alias = "v",
         verbatim_doc_comment,

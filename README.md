@@ -354,11 +354,18 @@ cargo run --locked -- --project-root /absolute/project info
 just ci
 ```
 
-`just ci` checks formatting, Clippy with warnings denied, host tests, a release build and dependency
-policy. After changing the configuration types, run `just schema` and commit the regenerated
+`just ci` checks formatting, Clippy with warnings denied, host tests and a release build.
+After changing the configuration types, run `just schema` and commit the regenerated
 `polyfw.schema.json`. Tests cover project/toolchain isolation, Cargo scopes, command arguments,
 selection rollback, disabled editor generation and project-free commands. Probe CLI tests use
 fixtures; they do not establish hardware behavior.
+
+GitHub Actions runs these checks for pushes to `main` and non-draft pull requests, skipping
+Markdown-only changes. Marking a pull request ready starts CI; returning it to draft cancels its
+current run. New commits cancel older runs for the same ref.
+
+Dependabot checks Cargo dependencies and GitHub Actions every Monday at 09:00 Asia/Shanghai.
+Minor and patch updates are grouped per ecosystem; major updates get individual pull requests.
 
 See [migration](docs/migration.md) for adapting an existing xtask project.
 

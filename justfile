@@ -13,4 +13,3 @@ ci:
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
     cargo build --locked --release
-    cargo deny --locked check

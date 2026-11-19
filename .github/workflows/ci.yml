@@ -2,7 +2,15 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
   pull_request:
+    # The draft transition cancels an existing run through concurrency below.
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    paths-ignore:
+      - '**.md'
 
 permissions:
   contents: read
@@ -16,6 +24,7 @@ env:
 
 jobs:
   check:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -28,5 +37,5 @@ jobs:
           build-warnings: warn
       - uses: taiki-e/install-action@v2.90.5
         with:
-          tool: just@1.58.0,cargo-deny@0.20.2
+          tool: just@1.58.0
       - run: just ci

@@ -80,7 +80,7 @@ rustc, including when `RUSTC=rustc` names the proxy, instead of inheriting the t
 
 The installed binary is the primary interface. Project-local just wrappers pass their own
 absolute `--project-root` and forward arguments. The host-only polyfw crate has its own lockfile,
-Rust pin, formatting and dependency policy; no consumer keeps a source copy or symlink.
+Rust pin and formatting checks; no consumer keeps a source copy or symlink.
 
 Every Cargo child clears inherited `RUSTUP_TOOLCHAIN` and runs from its operating workspace,
 including metadata and workspace discovery. This lets the tool and each consumer use their own
