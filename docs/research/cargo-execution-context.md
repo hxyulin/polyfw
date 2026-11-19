@@ -1,8 +1,9 @@
 # Cargo execution context
 
-Investigated 2026-11-20. Findings and alternatives; no cwd policy is accepted here.
-Dedicated rust-analyzer support is outside scope. The proposed model identifies a Firmware
-by its manifest and one Platform; Platform target/CPU are optional and chip is required.
+Investigated 2026-11-20. The current design uses an explicit Cargo working directory.
+Dedicated rust-analyzer support is outside scope. Firmware declares a package, optional
+binary and one Platform. Its working directory comes from Firmware or Platform configuration.
+Platform target, CPU and chip are required.
 
 ## Current implementation
 
@@ -13,6 +14,66 @@ group formatting and host checks by owner, while MCU Clippy uses the firmware co
 [Scope](../../src/scope.rs) discovers an unknown owner using Cargo from the package directory,
 then loads metadata at the owner root. Revisiting this invariant is a design change, not
 something Cargo itself requires.
+
+## Current design direction
+
+The user chose an explicit `working-dir` field instead of a package manifest. Both Firmware
+and Platform may supply `working-dir`, `build-dir` and `target-dir`; resolve each field
+independently, with Firmware overriding Platform. An effective `working-dir` is required.
+Run Cargo from this directory so its native configuration, environment and rustup ancestry apply.
+Load metadata there and select the named package from workspace members. The resulting
+workspace root provides membership, lockfile and profile ownership; discovering it does not
+change the execution directory. Metadata/configuration/build contexts must remain aligned.
+
+The effective `target-dir` overrides Cargo's final-output directory, and `build-dir`
+overrides its intermediate directory. Omission at both levels leaves the corresponding Cargo
+configuration, environment and defaults untouched. Absolute paths and relative paths containing
+`..` are supported, including project-external directories. All relative directory inputs start
+at the directory containing polyfw.toml, including inherited values; `working-dir` does not
+rebase the other fields.
+Use metadata's effective `target_directory` when locating Cargo output rather than assuming
+a project-local cache. A supplied `target-dir` does not itself override a separately
+configured `build.build-dir`; the optional `build-dir` input controls that setting.
+
+Required Platform target/CPU values do not guarantee complete cache equivalence. Compiler
+versions, rustflags, features, dependencies and build-script inputs remain relevant. Retain
+Cargo's own fingerprint/rebuild decisions. See the [cache/artifact investigation](cargo-cache-and-artifacts.md)
+for same-name binary behavior and native sharing with separate final-output directories.
+The design retains Cargo's collision behavior without an additional bin-name error or ELF
+copy mechanism. Projects that need simultaneous distinct images can choose separate
+target directories while sharing compatible intermediates.
+
+Host lint/tests of packages in the firmware's workspace use the same resolved working and
+output directories, explicitly select `host-tuple` and do not inject Platform CPU flags.
+Host checks of local dependencies in other workspaces run from those workspace roots with
+their native directory settings. Grouping must preserve distinct execution contexts rather
+than merging every registration that shares a workspace.
+
+The following is a design fragment, not configuration supported by the current implementation.
+Both firmware entries inherit the working and build directories, and override the final-output
+directory independently:
+
+```toml
+[platforms.demo-board]
+target = "thumbv7em-none-eabihf"
+cpu = "cortex-m7"
+chip = "STM32H723VGTx"
+working-dir = "."
+build-dir = "target/build/demo-board"
+target-dir = "target/demo-board"
+
+[firmwares.led-demo]
+description = "LED demo firmware"
+platform = "demo-board"
+package = "led-demo"
+target-dir = "target/firmware/led-demo"
+
+[firmwares.buzzer-demo]
+description = "Buzzer demo firmware"
+platform = "demo-board"
+package = "buzzer-demo"
+target-dir = "target/firmware/buzzer-demo"
+```
 
 ## Facts that constrain the choice
 
@@ -91,7 +152,7 @@ case: it need not be a member and may have a different owning workspace.
 [Cargo configuration ancestry](https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure),
 [Rustup ancestry](https://rust-lang.github.io/rustup/overrides.html)
 
-## Product alternatives
+## Earlier execution alternatives
 
 | Policy | Benefit | Cost or unresolved branch |
 | --- | --- | --- |
@@ -99,18 +160,16 @@ case: it need not be a member and may have a different owning workspace.
 | B. Firmware package cwd for build/MCU lint and matching probes/metadata | Matches manual Cargo invocation inside that firmware; supports member settings | Host checks must separately choose owner grouping or package contexts; firmware contexts cannot merge solely by workspace |
 | C. Explicit configurable cwd | Supports unusual layouts | Adds another identity, validation and grouping dimension; can disconnect manifest, configuration and compiler selection |
 
-**Revised recommendation, pending a user decision:** retain owning-workspace cwd for
-Cargo operations. External members then use the same workspace configuration ancestry
-and compiler pin as internal members, while Platform overrides express firmware target/CPU
-differences. This preserves existing check grouping and avoids adding an invocation-directory
-setting or a directory-dependent fallback. Member-cwd remains the alternative when honoring
-member-local configuration is more important than a shared workspace environment.
+The previous owner-root recommendation was superseded by the explicit working-directory
+design above. It would preserve check grouping and workspace configuration ancestry, while
+member-cwd would honor member-local settings. The explicit directory makes that choice a
+project input instead of a tool-imposed inference.
 
-## Registration alternatives for an owner-root policy
+## Earlier registration alternatives for an owner-root policy
 
-External-member support is required. Retain the previously agreed package-manifest input;
-explicit workspace/package registration was investigated but is not required. Neither
-locator should reject a package because its manifest is outside the workspace tree.
+These alternatives were superseded by working-directory plus package/bin selection.
+External-member support remains required; no locator should reject a package because its
+manifest is outside the workspace tree.
 
 | Locator | Implementation | Tradeoff |
 | --- | --- | --- |
@@ -125,7 +184,7 @@ ancestor search and explicit `package.workspace`, including external members.
 [Cargo metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html),
 [locate-project](https://doc.rust-lang.org/cargo/commands/cargo-locate-project.html)
 
-For the owner-root execution policy under discussion, separate discovery from resolution:
+The owner-root alternative would separate discovery from resolution:
 
 1. Canonicalize the registered package manifest and ask Cargo for its owning workspace.
 2. Canonicalize the returned root, then select Cargo and load metadata/configuration there.
