@@ -1,0 +1,129 @@
+# rust-analyzer support for firmware platforms
+
+Date: 2026-11-20. Research findings and design alternatives; file ownership remains undecided.
+
+This investigates editor integration for the identities in [ADR 0002](../adr/0002-firmware-and-platform-identities.md): a Firmware identifies one package manifest and one Platform; Cargo supplies workspace ownership; a Platform supplies the chip and optional target/CPU overrides. Cache policy remains open. The current [editor implementation](../../src/vscode.rs) generates only debugger launch/attach entries. Its existing selection, disabled-generation and rollback contract is owned by [Design](../design.md#selection-and-editor-writes).
+
+## Evidence and version boundary
+
+The latest official release observed was [2026-11-16, v0.3.3121](https://github.com/rust-lang/rust-analyzer/releases/tag/2026-11-16), commit `946b80a756ac1a1ef8882ec65e4f3199e38a23c7`. Configuration, reload and Cargo metadata citations below use that tag. Some project-model and VS Code files were retrievable only at official `master`; those citations explicitly retain `master` and are observations of source retrieved on this date, not verified release behavior. No editor session or CPU-sensitive firmware fixture was executed.
+
+## Preferred direction: ordinary Cargo configuration
+
+The design discussion now prefers Cargo-native integration and accepts Cargo's native precedence, including environment `RUSTFLAGS` overriding file-based CPU settings. The file-ownership alternatives below are still proposals. This supersedes the earlier full LSP/custom-command proposal as the initial direction.
+
+With `rust-analyzer.cargo.target` unset, the inspected implementation asks Cargo for effective configuration, reads `build.target`, and falls back to the host tuple if discovery fails or supplies no target. The configuration query accepts `cargo.configPath`; ordinary Cargo discovery needs no such setting. See [configuration loading, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/cargo_config_file.rs#L14-L39) and [target discovery, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/toolchain_info/target_tuple.rs#L10-L30). CPU settings remain Cargo rustflags; the successful Cargo cfg probe observes them, subject to the fallback limitation below.
+
+Cargo config inclusion requires **Cargo 1.94+**: both the [1.94 release announcement](https://blog.rust-lang.org/2026/03/05/Rust-1.94.0/#cargo-config-inclusion) and [Cargo changelog](https://doc.rust-lang.org/cargo/CHANGELOG.html#cargo-194-2026-03-05) place stabilization there. The unstable book's 1.93 statement is stale; [1.93 source still gates inclusion](https://github.com/rust-lang/cargo/blob/rust-1.93.0/src/cargo/util/context/mod.rs#L1308-L1325).
+
+| Proposed delivery | Benefit | Limit |
+| --- | --- | --- |
+| A. Generated `.cargo/config.toml` includes user-owned `.cargo/config.base.toml`; generated target/CPU entries live in the including file | Explicit scalar entries outrank the base; generated rustflags append after base flags. Replacing the ordinary config uses rust-analyzer's recognized reload path. | Requires agreeing to polyfw ownership of the entry file and migrating existing configuration. Arrays merge; they are not replaced wholesale. |
+| B. User-owned `.cargo/config.toml` includes generated `.polyfw-state/cargo.toml` | One-time include; preserves user ownership of the entry file. | The entry file's own values outrank the generated fragment. Fragment-only changes have no verified automatic reload trigger. |
+| C. Fixed `rust-analyzer.cargo.configPath` points to a generated Cargo fragment | One static editor setting; no Cargo entry-file ownership. | Inspected cfg probing omits this injected file, so target/check commands can agree while CPU-sensitive analysis disagrees. |
+
+For A, the generated entry starts with `include = ["config.base.toml"]`. For B, the user's entry starts with `include = [{ path = "../.polyfw-state/cargo.toml", optional = true }]`. Include paths are relative to the including file; ordinary path-valued Cargo settings retain their separate config-relative rules. Included files load first, left to right, then the including file merges on top. Scalars override; arrays concatenate with higher-priority entries later. Environment overrides remain effective, and `--config` has higher precedence than environment. See [Cargo include and merge rules](https://doc.rust-lang.org/cargo/reference/config.html#including-extra-configuration-files) and [compiler-flag source precedence](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags). Neither proposal introduces a stronger CPU override than Cargo itself provides.
+
+The release refresh predicate recognizes `.cargo/config.toml`, `.cargo/config`, manifests, lockfiles and configured extra filenames; it does not automatically recognize `.polyfw-state/cargo.toml`. A uses the normal config-change path, but actual editor watch/reload behavior still needs verification. B should initially document manual **Reload Workspace** after selection. See [release refresh rules](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/reload.rs#L929-L959).
+
+This direction has one active platform per owning Cargo workspace. It leaves rust-analyzer's workspace-wide model and default workspace checks intact; mixed-target packages still require a compatible workspace convention or explicit manual editor settings. A selected Firmware does not automatically isolate its package. Distinct workspaces can retain distinct native Cargo defaults; several platforms for one workspace are not simultaneous semantic contexts.
+
+The current polyfw resolver also needs attention before either include-based layout can be implemented. [Cargo.lock](../../Cargo.lock) pins `cargo-config2` 0.1.45; its [configuration loader](https://github.com/taiki-e/cargo-config2/blob/v0.1.45/src/de.rs) has no include field and parses only files found by hierarchical discovery. A temporary-project probe through an existing, stale polyfw binary corroborated this: an include-only target failed with `expected one explicit build.target ... got []`, while a direct target in the including file resolved. The fixture used the executable's older registry model; no current-source rebuild or Cargo-precedence experiment was performed. Native Cargo inclusion and polyfw's effective-config reporting must agree before this becomes a supported layout.
+
+## Cache implications
+
+Cargo fingerprints distinguish compiler settings, flags and compilation modes. Check, Clippy and build therefore do not reuse every artifact, but sharing a compatible cache can still reuse matching dependencies and build helpers. CPU switches do not necessarily invalidate every previously compiled dependency variant. See [Cargo fingerprints](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/fingerprint/index.html) and [Cargo check](https://doc.rust-lang.org/cargo/commands/cargo-check.html).
+
+Final ELF paths are a separate concern: they contain target, profile and binary name, rather than CPU or Firmware ID. Sharing a final directory can replace the exposed binary even when Cargo preserves hashed intermediate variants. Workspace plus Platform or separate Firmware directories remain candidate isolation policies. See [final artifact layout](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/layout/index.html).
+
+Stable Cargo can serialize builds using the same build directory; fine-grained locking remains [unstable](https://doc.rust-lang.org/cargo/reference/unstable.html#fine-grain-locking). A separate IDE cache trades extra artifacts for less contention. Both final `target-dir` and intermediate `build-dir` matter: an explicit consumer `build.build-dir` can retain sharing after `target-dir` changes. See [Cargo's directory contract](https://doc.rust-lang.org/cargo/reference/build-cache.html).
+
+Whole-cache clean removes both directories and does not take the ordinary build lock. An IDE cache nested below a directory removed by CLI clean is still affected. Separate sibling namespaces make independent cleanup possible; this is a proposed policy, not yet accepted. See [Cargo clean implementation](https://doc.rust-lang.org/stable/nightly-rustc/src/cargo/ops/cargo_clean.rs.html).
+
+Do not assume a Platform alone is a safe shared cache key across owning workspaces: [Cargo issue 12516](https://github.com/rust-lang/cargo/issues/12516) records cross-workspace incorrect reuse. Owning-workspace identity remains relevant even without a named Workspace registry. CLI host checks also need an explicit owning-workspace cache rule; current [host command construction](../../src/commands.rs) picks the first matching BSP cache.
+
+## Verified configuration surfaces
+
+| Setting, prefixed with `rust-analyzer.` | Meaning relevant to polyfw |
+| --- | --- |
+| `cargo.target` | One compilation-target override for the loaded Cargo model. |
+| `check.targets` | String or list for save-time checking; empty/unset falls back to `cargo.target`. It does not create several semantic analysis contexts. Use this current plural spelling, not `check.target`. |
+| `cargo.extraEnv` | Environment for Cargo, rustc and workspace commands. Suitable transport for resolved compiler flags. |
+| `check.extraEnv` | Additional check-only environment, with duplicate keys overriding `cargo.extraEnv`. |
+| `cargo.extraArgs` | General Cargo arguments; automatic checks prepend these before `check.extraArgs`. |
+| `check.extraArgs` | Extra automatic-check arguments; does not configure initial build-script execution. |
+| `cargo.targetDir` | `null`/`false`: no override; `true`: `rust-analyzer` subdirectory under the Cargo target directory; string: specified directory, relative to the owning workspace when relative. |
+
+These names, fallbacks and merge rules come from [release config definitions and command construction](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/config.rs#L717-L892) and [argument/environment merging](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/config.rs#L2172-L2194). Source also retains older `checkOnSave` aliases; newly generated settings should use current names.
+
+The documentation describes `cargo.extraArgs` broadly, but metadata actually forwards only its `-Z` arguments plus `cargo.metadataExtraArgs`. `cargo.configPath` is a separate Cargo-config-file injection used by metadata. Therefore do not assume arbitrary build flags reach metadata or rustc configuration probes. See [release metadata construction](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/project-model/src/cargo_workspace.rs#L614-L632).
+
+Build scripts default to enabled; `procMacro.enable` also implies their execution. `cargo.buildScripts.rebuildOnSave` reruns them after relevant saves; `useRustcWrapper` permits skipping unnecessary compilation. `cargo.buildScripts.overrideCommand` replaces their command, while `check.overrideCommand` independently replaces save checks. Both require Cargo-compatible JSON output; their default `per_workspace` strategy runs once in each owning workspace. `once` changes invocation count, not configuration scope. See the [official settings schema](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/editors/code/package.json#L883-L943), [proc-macro setting](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/editors/code/package.json#L2874-L2881) and [check command contract](https://rust-analyzer.github.io/book/configuration.html#rust-analyzer.check.overrideCommand).
+
+## What actually loads and checks
+
+`linkedProjects` accepts manifest paths or `rust-project.json` descriptions and disables automatic discovery. A package manifest is accepted, but loading resolves it through `cargo locate-project --workspace`; it is not a package-only analysis graph. Prefer the discovered owner manifest when generating a deterministic workspace view. See [linkedProjects documentation](https://rust-analyzer.github.io/book/configuration.html#rust-analyzer.linkedProjects) and [workspace resolution, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/workspace.rs#L199-L260).
+
+Automatic save checks default to `check.workspace = true`, hence `--workspace`. Setting it false instead checks the package associated with a saved file when available; it does not mean “always check polyfw's selected Firmware.” For a fixed firmware package, an explicit check command can select `--package` and `--lib --bins`. Do not rely on appending `-p` while leaving workspace checking enabled. Cargo's package and target selection rules are documented in [cargo check](https://doc.rust-lang.org/cargo/commands/cargo-check.html#package-selection).
+
+Initial build-script/proc-macro compilation also defaults to `cargo check --workspace`, separately from checks. Its parsed JSON supplies build-script cfgs, environment, `OUT_DIR` and proc-macro library paths. A custom package-scoped command must include the dependencies needed for that package, output these messages and handle its target/cache arguments itself. `cargo.targetDir` is applied to the automatic command; the custom-command branch simply executes its configured argv with `cargo.extraEnv`. See [build command construction, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/build_dependencies.rs#L409-L439) and [JSON consumption, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/build_dependencies.rs#L307-L385).
+
+## Target, CPU and semantic accuracy
+
+There is no chip-to-CPU setting here. Ordinary Cargo `build.target` and rustflags are sufficient inputs for the preferred direction; explicit `cargo.target`/`cargo.extraEnv` remain an alternative. Cargo chooses its rustflags source by precedence; assigning `RUSTFLAGS` can suppress file-based linker or CPU flags. That native environment precedence is accepted. With explicit `--target` or Cargo `build.target`, target flags apply to MCU crates while build scripts and proc macros compile separately for the host. See [Cargo compiler-flag configuration](https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags) and [host/target cache behavior](https://doc.rust-lang.org/cargo/reference/build-cache.html).
+
+CPU-sensitive analysis remains conditional even with ordinary Cargo configuration:
+
+1. The inspected [cfg probe, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/project-model/src/toolchain_info/rustc_cfg.rs#L55-L90) first runs `cargo rustc -Z unstable-options --print cfg`, with the target and `cargo.extraEnv`. Cargo explicitly documents that this [print facility injects effective target and RUSTFLAGS](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#rustc---print). This path can reflect CPU-derived `target_feature` cfgs.
+2. On failure it runs bare `rustc --print cfg -O --target ...`. This does not read Cargo files or convert `RUSTFLAGS`/`CARGO_ENCODED_RUSTFLAGS` into rustc arguments, so either source's CPU effect can be lost on fallback. The probe also omits `cargo.extraArgs` and `cargo.configPath` from its Cargo command.
+
+Consequently a correct check command can coexist with an inaccurate semantic cfg model. Build-script output is another necessary input, not a substitute for target cfg discovery. Before claiming parity, verify the supported rust-analyzer release with conflicting inherited CPU flags, CPU-dependent cfgs, generated code, proc macros and the fallback path. Host-versus-MCU semantic cfg parity was not established here.
+
+## Several platforms in one LSP session
+
+The release loader computes **one** `config.cargo(None)` and passes it to every linked project, and computes one build-data configuration. It also removes duplicate workspaces. Cargo settings are classified internally as workspace settings, but this loading path does not supply a separate configuration per linked manifest. See [release workspace/build-data loading](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/reload.rs#L259-L375).
+
+Thus distinct Cargo workspaces may retain their own Cargo defaults/toolchains, but a list of Firmware manifests cannot express different explicit target/CPU overrides for each project. Listing the same package twice does not establish two platform contexts. Multiple `check.targets` values add compiler diagnostics, not independently configured semantic views. Separate LSP sessions are a plausible isolation boundary; editor-specific process routing and shared-source behavior still need testing.
+
+`rust-project.json` is a different escape hatch: its crate records can contain individual targets, cfgs, environments and proc-macro dylib paths, and describe dependencies explicitly. Generating it means owning those complete inputs, including build-script results and sysroots; Cargo checks are not automatic unless configured. Shared sources and overlapping platform graphs still require an editor experiment. The format is provisional. See [official non-Cargo project format and flycheck contract](https://rust-analyzer.github.io/book/non_cargo_based_projects.html).
+
+## Alternative: explicit LSP settings and custom commands
+
+This earlier proposal is retained for comparison and is not selected for the initial direction. It is neither implemented nor runtime-verified. A generator would substitute canonical workspace/package paths, the resolved target, the complete effective MCU flags and the chosen cache policy:
+
+```json
+{
+  "rust-analyzer.linkedProjects": ["/project/firmware-demos/Cargo.toml"],
+  "rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
+  "rust-analyzer.cargo.extraEnv": {
+    "CARGO_ENCODED_RUSTFLAGS": "-Clink-arg=-Tlink.x\u001f-Ctarget-cpu=cortex-m7"
+  },
+  "rust-analyzer.cargo.targetDir": "/project/firmware-demos/target/editor/workspace-key/platform-key",
+  "rust-analyzer.cargo.allTargets": false,
+  "rust-analyzer.check.targets": "thumbv7em-none-eabihf",
+  "rust-analyzer.check.workspace": false
+}
+```
+
+Here the flag string illustrates preserving an existing linker argument while replacing CPU flags; it is not a generic flag recipe. `check.targets` could be omitted to inherit `cargo.target`. Disabling `allTargets` avoids automatically checking firmware test/bench targets, but does not limit the workspace's package set or disable semantic `cfg(test)` by itself.
+
+For strict selected-package checking, replace the automatic check with an argv array such as `cargo check --locked --manifest-path /project/firmware-demos/Cargo.toml --package led-demo --target thumbv7em-none-eabihf --lib --bins --target-dir /project/firmware-demos/target/editor/workspace-key/platform-key --message-format=json`. Use the same explicit selection for `cargo.buildScripts.overrideCommand` if unrelated workspace packages prevent build-data collection. Override commands must carry their own target, profile and directory arguments; inherited automatic options are not a complete command template. This is more maintenance than automatic commands, and still does not prune the loaded Cargo model.
+
+The debugger's selected profile already chooses an ELF via the [shared artifact resolver](../design.md#artifact-identity). Following that profile in rust-analyzer would be a separate policy: `--profile` can be supplied to its build/check commands, but the inspected cfg probe adds `-O` independently. Release-profile build scripts, checks and semantic `debug_assertions` must not be assumed to match automatically.
+
+## Delivery, refresh and other editors
+
+Under the explicit-LSP alternative, a generated `.code-workspace` can keep polyfw-owned settings separate from a user's `.vscode/settings.json`, but users must open that workspace file. Its `settings` apply to the whole VS Code workspace. Folder settings only apply where the setting and extension support resource scope; they cannot fix the loader limitation above. Workspace-level launch variables require explicit folder names, so the existing `${workspaceFolder}` launch output cannot simply be moved unchanged. See [VS Code settings and debugging scope](https://code.visualstudio.com/docs/editing/workspaces/multi-root-workspaces#_settings).
+
+The inspected [VS Code client, master](https://github.com/rust-lang/rust-analyzer/blob/master/editors/code/src/client.ts#L29-L48) rejects scoped configuration requests, and [configuration reading, master](https://github.com/rust-lang/rust-analyzer/blob/master/editors/code/src/config.ts#L217-L242) reads one unscoped configuration. A generated workspace file is therefore a delivery mechanism for one selected context, not evidence of per-folder platform support.
+
+When an editor sends updated configuration, release code reloads projects for Cargo/model changes and recreates checks for check-setting changes; switching target/flags need not inherently restart the server. It remains asynchronous, and an editor must observe and transmit generated-file changes. A manual workspace reload is needed when autoreload is disabled; some options, such as sysroot settings, explicitly require restart. See [release configuration update logic](https://github.com/rust-lang/rust-analyzer/blob/2026-11-16/crates/rust-analyzer/src/reload.rs#L84-L129) and [sysroot documentation](https://rust-analyzer.github.io/book/configuration.html#rust-analyzer.cargo.sysroot).
+
+Other editors can consume the same nested settings through LSP `initializationOptions` and configuration updates, without the `rust-analyzer.` prefix. They do not consume `.code-workspace` automatically. `rust-analyzer.toml` support remains documented as incomplete; it is not a verified universal replacement. See [official configuration transport](https://rust-analyzer.github.io/book/configuration.html).
+
+## Proposed tradeoffs and unresolved checks
+
+- **Preferred direction:** express the active platform through ordinary Cargo configuration; preserve native environment precedence. File ownership between alternatives A and B remains a user decision. Keep CLI resolution and editor-visible Cargo inputs consistent.
+- **Inference:** an editor cache separate from firmware caches reduces build-lock contention at the cost of duplicated artifacts. `cargo.targetDir` affects initial build data and automatic checks, not only diagnostics. For shared caches, different targets have separate directories, but CPU variants sharing target/profile/binary names need separate artifact namespaces or copied final images. Cargo fingerprints do not give each selected Firmware a stable final ELF path.
+- **Proposed:** settle cache identity independently of Firmware naming: workspace plus platform is a candidate reuse boundary, while one cache per Firmware favors stable ownership and simpler cleanup. Renames, equivalent platforms, workspace collisions, `build.build-dir`, host checks and package cleaning need an explicit contract before implementation.
+- **Unverified:** generated settings refresh in a running VS Code session; selected-profile cfg fidelity; CPU cfg fallback handling; multiple sessions editing shared source; complete custom-command build-script/proc-macro output. None is promised by this research.

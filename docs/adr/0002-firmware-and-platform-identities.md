@@ -18,17 +18,27 @@ lets firmware and platform names express their actual roles without duplicating 
 workspace model.
 
 Platforms require a probe-rs chip and may override the compilation target and CPU. Omitted
-values retain Cargo's effective configuration. An explicit target has Cargo `--target`
-semantics; an explicit CPU takes precedence over existing CPU flags for every crate compiled
-for the MCU. Preserve the remaining effective compiler flags, including linker arguments;
-do not combine lower-precedence flag sources that Cargo would normally suppress. Host
-checks, build scripts and proc macros retain their host compilation settings.
+values retain Cargo's effective configuration. Use native Cargo configuration and argument
+precedence: an explicit `--target` overrides target defaults, while target-scoped CPU flags
+follow Cargo's compiler-flag rules, including environment overrides. Preserve the remaining
+effective compiler flags, including linker arguments; do not combine lower-precedence flag
+sources that Cargo would normally suppress. Target flags apply to MCU crates; host checks,
+build scripts and proc macros retain their host compilation settings.
+
+Prefer ordinary Cargo configuration as the integration boundary with rust-analyzer and
+other Rust tooling. This lets those tools read shared Cargo inputs without introducing
+custom editor check commands, and accepts Cargo's native precedence instead of forcing
+platform CPU settings above environment flags.
 
 Each firmware must ultimately resolve to one explicit compilation target. If the platform
 does not specify one, Cargo must provide exactly one; missing or multiple defaults are
 errors. An explicit platform target overrides those defaults. An explicit `host-tuple`
 remains valid. Different platforms can therefore select different targets within one Cargo
 workspace while sharing that workspace's package resolution and toolchain.
+
+Register separate firmware IDs when one package manifest is used with different platforms.
+Each ID keeps one platform binding; selecting a firmware determines its platform as well.
+There is no temporary platform override on an individual command.
 
 This accepts an intentional configuration and interface migration without old Board or BSP
 aliases. Apply the existing [configuration compatibility policy](0001-release-linked-configuration-compatibility.md)
