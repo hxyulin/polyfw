@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use serde_json::json;
 
 use crate::Result;
@@ -9,7 +7,7 @@ use crate::runner::firmware_elf_path;
 pub(crate) const LAUNCH_FILE: &str = ".vscode/launch.json";
 
 pub(crate) fn configuration(selection: &Selection) -> Result<String> {
-    let elf = firmware_elf_path(Path::new(""), selection)
+    let elf = firmware_elf_path(selection)
         .to_string_lossy()
         .replace('\\', "/");
     // Configuration fields follow the probe-rs extension's 0.32.0 schema.
@@ -24,11 +22,11 @@ pub(crate) fn configuration(selection: &Selection) -> Result<String> {
             "type": "probe-rs-debug",
             "request": request,
             "cwd": "${workspaceFolder}",
-            "chip": selection.bsp.chip,
+            "chip": selection.platform.chip,
             "wireProtocol": "Swd",
             "coreConfigs": [{
                 "coreIndex": 0,
-                "programBinary": format!("${{workspaceFolder}}/{elf}"),
+                "programBinary": elf,
                 "rttEnabled": true,
                 "rttChannelFormats": [{
                     "channelNumber": 0,

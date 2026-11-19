@@ -9,7 +9,7 @@ use crate::profile::Profile;
 const REGISTRY_NAME_PATTERN: &str = "^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
 
 /// Project configuration for registered embedded firmware.
-/// Cargo metadata additionally validates BSP workspaces and firmware packages at runtime.
+/// Cargo metadata additionally validates firmware workspace membership and binary targets at runtime.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "polyfw registry", extend(
@@ -34,20 +34,20 @@ pub(crate) struct Registry {
     #[serde(default)]
     pub(crate) config: Config,
 
-    /// Board models and their consuming workspaces, keyed by BSP ID such as demo-board.
+    /// Reusable hardware/compiler settings, keyed by platform ID such as demo-board.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
         "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
-    pub(crate) bsps: BTreeMap<String, Bsp>,
-    /// Programmable targets, keyed by board ID such as led-demo or buzzer-demo.
+    pub(crate) platforms: BTreeMap<String, Platform>,
+    /// Selectable software entries, keyed by firmware ID such as led-demo or buzzer-demo.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
         "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
-    pub(crate) boards: BTreeMap<String, Board>,
+    pub(crate) firmwares: BTreeMap<String, Firmware>,
 }
 
 /// Project-wide checking and editor settings.
@@ -66,7 +66,7 @@ pub(crate) struct Config {
     /// patterns are errors. These globs select checks, not Cargo's dependency builds.
     #[serde(rename = "local-dependencies")]
     pub(crate) local_dependencies: Vec<String>,
-    /// Editor-file management when saving or clearing board selection.
+    /// Editor-file management when saving or clearing firmware selection.
     pub(crate) vscode: VscodeConfig,
 }
 
@@ -95,44 +95,86 @@ impl Default for VscodeConfig {
     }
 }
 
-/// A board model's consuming Cargo workspace and hardware identity.
-#[derive(Debug, Deserialize, Clone, JsonSchema)]
+/// Reusable hardware and compilation settings, independent of Cargo workspace ownership.
+#[derive(Debug, Default, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Bsp {
-    /// Cargo workspace directory relative to the project root. Use `.` for the root;
-    /// absolute paths and `..` are rejected. The workspace can be virtual.
-    pub(crate) workspace: String,
-    /// Resolved target directory name; derived from Cargo, not read from polyfw.toml.
-    #[serde(skip)]
+pub(crate) struct Platform {
+    /// Explicit Cargo compilation target, including host-tuple or a custom JSON target.
     pub(crate) target: String,
-    /// Last explicit target CPU in effective rustflags, or None for the compiler default.
-    #[serde(skip)]
-    pub(crate) cpu: Option<String>,
+    /// Declared target CPU. Cargo's native rustflags precedence determines its final use.
+    pub(crate) cpu: String,
     /// probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.
     pub(crate) chip: String,
+    /// Default Cargo working directory. Firmware may override it. Relative paths start
+    /// beside polyfw.toml; absolute paths and `..` are supported. One level must supply it.
+    #[serde(rename = "working-dir")]
+    pub(crate) working_dir: Option<String>,
+    /// Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels
+    /// to retain Cargo's configuration/environment defaults. Relative to polyfw.toml.
+    #[serde(rename = "build-dir")]
+    pub(crate) build_dir: Option<String>,
+    /// Default final-output directory override. Omit at both levels for Cargo defaults.
+    /// Relative to polyfw.toml, independently of working-dir.
+    #[serde(rename = "target-dir")]
+    pub(crate) target_dir: Option<String>,
+    /// Check effective target-side Cargo target/CPU before build and MCU Clippy. Defaults
+    /// to true after Firmware inheritance. Mismatch or unverifiable settings are errors;
+    /// false skips analysis silently. Excludes host work, wrappers and existing ELF files.
+    #[serde(rename = "check-platform")]
+    pub(crate) check_platform: Option<bool>,
 }
 
-/// A programmable target referring to a BSP and firmware package.
-#[derive(Debug, Deserialize, Clone, JsonSchema)]
+/// A selectable software entry referring to one platform and Cargo package.
+#[derive(Debug, Default, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Board {
-    /// Human-readable label for board lists and the picker.
+pub(crate) struct Firmware {
+    /// Human-readable label for firmware lists and the picker.
     pub(crate) description: String,
-    /// BSP ID declared in this registry's bsps table.
-    pub(crate) bsp: String,
-    /// Cargo package name in the BSP workspace. It must declare a host-testable library
+    /// Platform ID declared in this registry's platforms table.
+    pub(crate) platform: String,
+    /// Cargo package name in the workspace discovered from the effective working directory. It must declare a host-testable library
     /// and at least one firmware binary.
     pub(crate) package: String,
     /// Firmware binary target name. Omit only if the package declares exactly one binary,
     /// counting feature-gated binaries independently of Cargo's default-run setting.
     pub(crate) bin: Option<String>,
+    /// Cargo working directory overriding the platform; relative to polyfw.toml.
+    #[serde(rename = "working-dir")]
+    pub(crate) working_dir: Option<String>,
+    /// Intermediate/cache directory overriding the platform; relative to polyfw.toml.
+    #[serde(rename = "build-dir")]
+    pub(crate) build_dir: Option<String>,
+    /// Final-output directory overriding the platform; relative to polyfw.toml.
+    #[serde(rename = "target-dir")]
+    pub(crate) target_dir: Option<String>,
+    /// Override platform consistency checking, including explicitly disabling it.
+    #[serde(rename = "check-platform")]
+    pub(crate) check_platform: Option<bool>,
     #[serde(skip)]
     pub(crate) resolved_bin: String,
+    #[serde(skip)]
+    pub(crate) cargo: CargoContext,
+}
+
+/// Resolved Cargo invocation identity; workspace ownership and invocation cwd are distinct.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CargoContext {
+    pub(crate) working_dir: PathBuf,
+    pub(crate) workspace: PathBuf,
+    pub(crate) target_dir: PathBuf,
+    pub(crate) build_dir: Option<PathBuf>,
+    pub(crate) target_dir_override: Option<PathBuf>,
+    pub(crate) build_dir_override: Option<PathBuf>,
+    /// Concrete triple or custom-target file stem for Cargo's public output layout.
+    pub(crate) target: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Metadata {
     pub(crate) workspace_root: String,
+    pub(crate) target_directory: PathBuf,
+    #[serde(default)]
+    pub(crate) build_directory: Option<PathBuf>,
     pub(crate) workspace_members: Vec<String>,
     pub(crate) packages: Vec<MetadataPackage>,
     pub(crate) resolve: Option<MetadataResolve>,
@@ -193,15 +235,30 @@ pub(crate) struct MetadataTarget {
 #[derive(Clone)]
 pub(crate) struct Selection {
     pub(crate) id: String,
-    pub(crate) board: Board,
-    pub(crate) bsp: Bsp,
+    pub(crate) firmware: Firmware,
+    pub(crate) platform: Platform,
     pub(crate) profile: Option<Profile>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SavedSelection {
-    pub(crate) board: String,
+    pub(crate) firmware: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) profile: Option<Profile>,
+}
+
+#[cfg(test)]
+impl CargoContext {
+    pub(crate) fn fixture(root: &std::path::Path, id: &str) -> Self {
+        let target_dir = root.join("target/firmware").join(id);
+        Self {
+            working_dir: root.join("platform/test"),
+            workspace: root.join("platform/test"),
+            target_dir: target_dir.clone(),
+            target_dir_override: Some(target_dir),
+            target: "thumbv7em-none-eabihf".into(),
+            ..Self::default()
+        }
+    }
 }

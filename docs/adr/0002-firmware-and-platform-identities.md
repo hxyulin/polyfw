@@ -29,12 +29,32 @@ do not combine lower-precedence flag sources that Cargo would normally suppress.
 flags apply to MCU crates; host checks, build scripts and proc macros retain their host
 compilation settings.
 
+Let Cargo apply its native compiler-flag merging rules. Platform CPU is reported as the
+declared configuration value, not as a guarantee about the compiler's final flags after
+native overrides. Firmware reports expose the discovered workspace and effective
+directory/artifact paths. Reporting alone does not require reproducing Cargo's flag resolver;
+consistency validation is a separate, configurable operation.
+
 Both Platform and Firmware may declare `working-dir`, `build-dir` and `target-dir`. Resolve
 each field independently: a Firmware value overrides its Platform value. `working-dir` is
 the Cargo working directory and must be supplied at one of these levels. Accept absolute
 paths and relative paths containing `..`, including directories outside the polyfw project.
 Resolve relative directory values against the directory containing polyfw.toml, including
 inherited values; they are not relative to `working-dir` or another directory field.
+
+Platform and Firmware may also declare `check-platform`. Firmware overrides Platform,
+including an explicit `false`; if neither supplies a value, checking is enabled. Before
+building selected firmware or running its target-side Clippy stage, compare the effective
+target and CPU with the Platform declarations after polyfw's overrides and Cargo's native
+environment/conditional flag precedence. A mismatch or an inability to determine the
+effective values reliably is an error with an explanation. With checking disabled, skip
+the comparison and configuration analysis without diagnostics.
+
+This checks Cargo's effective configuration, not changes made inside custom compilers or
+third-party wrappers. It covers the firmware and its target-side dependencies, excluding
+host tests, build scripts and proc macros. It neither probes the hardware chip nor checks
+directories or existing ELF contents. Info, formatting, host-only checks, cleaning and
+hardware commands do not trigger the comparison.
 
 Run firmware metadata, configuration probes, builds and MCU checks from the resolved
 working directory. Discovering a different workspace root does not change that directory.
@@ -51,11 +71,19 @@ compatible intermediates while retaining separate firmware images; Cargo decides
 reusable. A common Platform is not by itself a complete cache identity: flags, toolchains,
 dependency graphs and execution environments can still differ.
 
-Host lint and tests for packages in the firmware's workspace retain its resolved working,
-build and target directories. They explicitly select `host-tuple` and do not inject the
-Platform CPU. Local dependencies belonging to another workspace are checked from that
-workspace's root with its native directory settings. Distinct firmware execution contexts
-must not be merged merely because Cargo reports the same owning workspace.
+Formatting, host lint and tests for packages in the firmware's workspace retain its resolved
+working, build and target directories. Host lint/tests explicitly select `host-tuple` and do
+not inject the Platform CPU. Local dependencies belonging to another workspace are checked
+from that workspace's root with its native directory settings. Distinct firmware execution
+contexts must not be merged merely because Cargo reports the same owning workspace; formatting
+the same source under different toolchains may therefore happen more than once.
+
+Retain native Cargo cleaning: a single firmware cleans its package in the selected context,
+including its explicit compilation target and host-target artifacts under Cargo's default
+profile rules. All-firmware cleaning performs full Cargo cleaning for each distinct effective
+directory context. Shared directories can contain artifacts from other packages, platforms
+and manual Cargo invocations; removing the old BSP cache isolation intentionally exposes
+Cargo's normal shared-directory effects.
 
 Retain Cargo's native handling of same-named binaries rather than adding a bin-name
 uniqueness error. Final outputs that share a path follow Cargo's replacement behavior;
@@ -77,8 +105,10 @@ Register separate firmware IDs when one package and binary are used with differe
 Each ID keeps one platform binding; selecting a firmware determines its platform as well.
 There is no temporary platform override on an individual command.
 
-This accepts an intentional configuration and interface migration without old Board or BSP
-aliases. Apply the existing [configuration compatibility policy](0001-release-linked-configuration-compatibility.md)
+Introduce this configuration and interface migration in polyfw 0.2.0, with both compatibility
+baselines raised to 0.2.0 and no old Board or BSP aliases. Retain the saved-state location but
+use the `firmware` key; old state requires explicit replacement or clearing rather than an
+automatic migration. Apply the existing [configuration compatibility policy](0001-release-linked-configuration-compatibility.md)
 to the changed contract. See the [glossary](../../GLOSSARY.md) for the domain terms and
 [Cargo configuration rules](https://doc.rust-lang.org/cargo/reference/config.html) for the
 underlying target and compiler-flag precedence.

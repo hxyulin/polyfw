@@ -3,7 +3,7 @@
 Run `polyfw init` to create a `polyfw.toml` template, then follow
 [Project configuration](configuration.md#initialize-a-configuration) to edit it for your project.
 The commands below use its `led-demo` and `buzzer-demo` firmware targets, which share the
-`demo-board` BSP. Replace them with board IDs listed by your project's `polyfw info`.
+`demo-board` platform. Replace them with firmware IDs listed by your project's `polyfw info`.
 
 ## Command overview
 
@@ -13,8 +13,8 @@ Run `polyfw help COMMAND` for the installed version's arguments and examples.
 | --- | --- | --- |
 | `init` | Create a configuration template for an existing firmware project | |
 | `schema` | Print or write the project configuration's JSON Schema | |
-| `info` | Inspect boards, saved selection and existing firmware images | `i` |
-| `select` | Save or clear a board and optional profile | `s` |
+| `info` | Inspect firmwares, saved selection and existing firmware images | `i` |
+| `select` | Save or clear a firmware and optional profile | `s` |
 | `build` | Build firmware | `b` |
 | `clean` | Remove firmware artifacts | |
 | `fmt` | Format selected source files in place | |
@@ -46,12 +46,12 @@ the nearest invalid configuration fails instead of falling back to another proje
 `init` uses the exact current directory or explicit root without searching ancestors. See
 [configuration initialization](configuration.md#initialize-a-configuration) for its creation rules.
 
-The selected root owns state, editor output, firmware caches and hardware-command working
-directories. It need not be a Git repository. Help, version, `schema` and `probes` ignore project
+The selected root owns state, editor output and hardware-command working directories. Cargo
+working and output directories are resolved from each Firmware/Platform configuration. It need not be a Git repository. Help, version, `schema` and `probes` ignore project
 discovery and `--project-root`. Help, version and schema need no external tools; `probes` needs
 only probe-rs and runs from the caller's directory.
 
-## Save a board and profile
+## Save a firmware and profile
 
 ```sh
 polyfw select led-demo --release
@@ -67,50 +67,50 @@ polyfw build
 polyfw flash
 ```
 
-`select` saves the board and any explicit profile in `.polyfw-state/selected`. With editor
+`select` saves the firmware and any explicit profile in `.polyfw-state/selected`. With editor
 generation enabled, it also writes the debug configuration. Use `polyfw select` to choose in a
 searchable picker, or `polyfw select --clear` to remove the state and managed launch file.
 
-| Invocation | Board choice | Saved state |
+| Invocation | Firmware choice | Saved state |
 | --- | --- | --- |
-| `polyfw build` | Saved board, or a picker if no board is saved | Unchanged |
-| `polyfw build buzzer-demo` | Named board for this invocation | Unchanged |
-| `polyfw build --select buzzer-demo` | Named board | Saved before building |
+| `polyfw build` | Saved firmware, or a picker if no firmware is saved | Unchanged |
+| `polyfw build buzzer-demo` | Named firmware for this invocation | Unchanged |
+| `polyfw build --select buzzer-demo` | Named firmware | Saved before building |
 | `polyfw build --select` | Always open the picker | Saved before building |
-| `polyfw build --all-boards` | Every registered board | Unchanged |
+| `polyfw build --all-firmwares` | Every registered firmware | Unchanged |
 
-The same board rules apply to `clean`, `fmt`, `lint`, `test` and `verify`. Hardware commands
-accept a board and `--select`, and operate on one board. `--all-boards` conflicts with a board
-argument and `--select`. Pickers require a terminal; scripts should use a board ID or
-`--all-boards`.
+The same firmware rules apply to `clean`, `fmt`, `lint`, `test` and `verify`. Hardware commands
+accept a firmware and `--select`, and operate on one firmware. `--all-firmwares` conflicts with a firmware
+argument and `--select`. Pickers require a terminal; scripts should use a firmware ID or
+`--all-firmwares`.
 
-`build`, `run`, `flash` and `attach` inherit the saved profile, including with a one-time board
+`build`, `run`, `flash` and `attach` inherit the saved profile, including with a one-time firmware
 override. Use `--dev`, `-r`/`--release` or `--profile NAME` to override it. These forms are mutually
 exclusive. Saving a selection retains only an explicitly supplied profile:
 `polyfw select led-demo` clears any previously saved profile. With no explicit or saved profile,
 polyfw omits the Cargo profile flag and Cargo's build default applies. An explicit `--dev` is saved.
-`--all-boards` uses only the profile passed on that invocation. `clean`, `fmt`, `lint`, `test`,
+`--all-firmwares` uses only the profile passed on that invocation. `clean`, `fmt`, `lint`, `test`,
 `verify` and `reset` take no profile option.
 
-A stale or malformed saved selection is an error. A one-time board override still reads that
+A stale or malformed saved selection is an error. A one-time firmware override still reads that
 state; replace it with `polyfw select led-demo` or remove it with `polyfw select --clear`.
 Clearing works without Cargo and without parsing the old state. A successful save remains even
 if the following build or hardware action fails.
 
-## Inspect boards and images
+## Inspect firmwares and images
 
 ```sh
 polyfw info
-polyfw info --board led-demo
-polyfw info --board buzzer-demo --json > buzzer-demo.json
+polyfw info --firmware led-demo
+polyfw info --firmware buzzer-demo --json > buzzer-demo.json
 ```
 
-The overview lists all boards, their referenced BSPs, the saved selection, and dev/release ELF
-presence. A different saved profile adds another artifact column. Details show one board's
+The overview lists all firmwares, their referenced platforms, the saved selection, and dev/release ELF
+presence. A different saved profile adds another artifact column. Details show one firmware's
 package, binary, workspace, target, CPU, chip, absolute ELF paths and check dependencies.
-`polyfw info --board` opens the picker for this query without saving the choice.
+`polyfw info --firmware` opens the picker for this query without saving the choice.
 
-`info` does not build, connect to hardware, change selection or write editor files. A stale board
+`info` does not build, connect to hardware, change selection or write editor files. A stale firmware
 in otherwise valid saved state is reported without blocking the query. Malformed state still
 fails. An ELF marked `present` may be older than the source or differ from the running image.
 
@@ -119,20 +119,23 @@ The JSON view contains:
 | Field | Meaning |
 | --- | --- |
 | `repository_root` | Absolute operating project root |
-| `saved_selection` | Saved `board` and optional `profile`; omitted if no state exists |
-| `bsps` | Map of BSPs referenced by the reported boards, with `workspace`, `target`, `cpu`, `chip` and `registered_boards` |
-| `boards` | Map of boards, limited to the requested board when using `--board` |
-| `boards[ID].description`, `.bsp`, `.package`, `.bin` | Registry values and the resolved binary name |
-| `boards[ID].artifacts` | Ordered `{profile, path, exists}` entries for dev, release and any different saved profile |
-| `boards[ID].local_dependencies` | Details only: dependency `{package, manifest_path, target}` entries, excluding the firmware itself |
+| `saved_selection` | Saved `firmware` and optional `profile`; omitted if no state exists |
+| `platforms` | Map of platforms referenced by the reported firmwares, with declared `target`, `cpu`, `chip` and `registered_firmwares` |
+| `firmwares` | Map of firmwares, limited to the requested firmware when using `--firmware` |
+| `firmwares[ID].description`, `.platform`, `.package`, `.bin` | Registry values and the resolved binary name |
+| `firmwares[ID].workspace`, `.working_dir` | Discovered Cargo workspace and actual invocation directory |
+| `firmwares[ID].target_dir`, `.build_dir` | Effective final/intermediate directories; `build_dir` is omitted if Cargo does not report it and no explicit override supplies it |
+| `firmwares[ID].target`, `.check_platform` | Resolved artifact target name and inherited consistency-check policy |
+| `firmwares[ID].artifacts` | Ordered `{profile, path, exists}` entries for dev, release and any different saved profile |
+| `firmwares[ID].local_dependencies` | Details only: dependency `{package, manifest_path, target}` entries, excluding the firmware itself |
 
 Workspace and artifact paths are absolute. Dependency manifest paths are project-relative,
 including `../` for external packages, or absolute when they cannot share a filesystem prefix.
 Dependencies are sorted by package name and path; their `target` is `embedded` or `host`.
-`cpu` is `null` when no CPU is explicit. Missing saved selection, saved profile and overview
-dependency details are omitted; `false` and empty arrays are retained.
+`cpu` is the required declaration, including when native flags override it. Missing saved
+selection, saved profile and overview dependency details are omitted; `false` and empty arrays are retained.
 
-JSON goes to stdout; interactive prompts go to stderr. Name the board in scripts so terminal
+JSON goes to stdout; interactive prompts go to stderr. Name the firmware in scripts so terminal
 availability and picker cancellation cannot change the result.
 
 ## Build, check and clean
@@ -140,17 +143,17 @@ availability and picker cancellation cannot change the result.
 ```sh
 polyfw build led-demo --release
 polyfw build buzzer-demo --release
-polyfw build --all-boards --release
+polyfw build --all-firmwares --release
 polyfw fmt led-demo
 polyfw lint led-demo
 polyfw test led-demo
-polyfw verify --all-boards
+polyfw verify --all-firmwares
 polyfw clean led-demo
 ```
 
-Builds run from the BSP's Cargo workspace with `--locked`. An explicit registry `bin` adds
-`--bin`; otherwise Cargo builds the package's default targets. Every board is built separately,
-including with `--all-boards`.
+Builds run from the effective `working-dir` with explicit Platform `--target` and `--locked`. An explicit registry `bin` adds
+`--bin`; otherwise Cargo builds the package's default targets. Every firmware is built separately,
+including with `--all-firmwares`.
 
 Checks cover the firmware package and its configured, reachable local dependencies:
 
@@ -161,26 +164,35 @@ Checks cover the firmware package and its configured, reachable local dependenci
 - `verify` checks formatting without rewriting files, then runs all lint stages, then all test
   stages. It stops at the first failure. It does not build a release image.
 
-Checks operate on whole packages, so other binaries can be included. MCU lint is grouped per
-BSP; host work is grouped and deduplicated per owning workspace. Grouped commands use workspace
+Checks operate on whole packages, so other binaries can be included. MCU lint is grouped by compilation context; host work and formatting retain distinct working/output
+directory contexts even when their packages share a workspace. Host work explicitly uses
+`--target host-tuple` and does not inject the Platform CPU. Other-workspace dependencies use
+their own workspace-root execution environment and native output directories. Grouped commands use workspace
 defaults and unify package features. The scope is not an exact reproduction of one image's
 compilation graph. See [configuration](configuration.md#select-local-dependencies-for-checks)
 to control dependency selection.
 
-All BSP firmware artifacts use `target/firmware/<bsp>` under the operating project. The two
-example release images share the BSP cache and have distinct binary names:
+Cargo chooses output directories unless Firmware or Platform overrides them. The configuration
+example shares intermediate artifacts through `build-dir` and keeps final images separate:
 
 ```text
-target/firmware/demo-board/thumbv7em-none-eabihf/release/led-demo
-target/firmware/demo-board/thumbv7em-none-eabihf/release/buzzer-demo
+target/firmware/led-demo/thumbv7em-none-eabihf/release/led-demo
+target/firmware/buzzer-demo/thumbv7em-none-eabihf/release/buzzer-demo
 ```
+
+Build and target-side Clippy operations honor the inherited `check-platform` policy before
+compilation. See [platform consistency](configuration.md#check-platform-consistency) for its
+scope, unsupported configuration sources and silent opt-out.
 
 Absent, dev and test profiles use `debug`; release and bench use `release`; custom profiles use
 their own names. Define custom profiles in the consuming Cargo workspace.
 
-`clean led-demo` cleans that package in its BSP cache, affecting its other binaries and boards
-sharing the package. `clean --all-boards` removes each registered BSP's full firmware cache.
-The command lists the boards it affects. Other build directories remain independent.
+`clean led-demo` delegates package cleaning in that firmware's context, selecting its Platform
+target and the host target. It follows Cargo's default package-clean profile behavior (dev/debug);
+release and custom-profile artifacts can remain. `clean --all-firmwares` performs full Cargo
+cleaning for each distinct directory context, across targets and profiles. Shared intermediate
+and final directories can include other packages, platforms and manual Cargo builds. The command
+shows registered firmware sharing the directories; it does not establish an isolated cleanup scope.
 
 ## Flash and monitor
 
@@ -206,7 +218,7 @@ polyfw run buzzer-demo --release
 `run`, `flash` and `attach` use an existing ELF and **never build**. `attach` needs the ELF that
 matches the running firmware. `reset` requires no ELF. The registry supplies the chip.
 
-The four board hardware commands accept transient `--probe VID:PID[:SERIAL]`, `--speed KHZ` and
+The four firmware hardware commands accept transient `--probe VID:PID[:SERIAL]`, `--speed KHZ` and
 `--connect-under-reset` options. Omitted probe/speed options are delegated to probe-rs. For example:
 
 ```sh
@@ -220,7 +232,7 @@ requires matching support in the firmware. `--no-catch-reset` and `--no-catch-ha
 probe-rs capture for those events.
 
 Ctrl-C ends the probe-rs session; firmware may continue running. Attaching may briefly halt the
-core, and connecting under reset drives the reset line. Board hardware commands run from the
+core, and connecting under reset drives the reset line. Firmware hardware commands run from the
 operating project root, so project-relative probe-rs settings resolve there.
 
 The integration targets the probe-rs 0.32.0 CLI contract. Automated tests check command
@@ -261,14 +273,14 @@ unverified; binary platform smoke tests do not verify these sessions.
 ## Use polyfw in scripts and CI
 
 Install a pinned published polyfw version and the consuming project's toolchains, targets,
-rustfmt and Clippy. From the project root, use explicit board scope:
+rustfmt and Clippy. From the project root, use explicit firmware scope:
 
 ```sh
-polyfw verify --all-boards
-polyfw build --all-boards --release
+polyfw verify --all-firmwares
+polyfw build --all-firmwares --release
 ```
 
-Use `polyfw info --board led-demo --json` when a script needs resolved paths. Build and check
+Use `polyfw info --firmware led-demo --json` when a script needs resolved paths. Build and check
 output includes numbered stages, status and elapsed time; redirected output omits colors and
 Unicode marks. `--color always` and `--color never` override automatic color selection;
 `NO_COLOR=1` disables automatic colors. Cargo may need network access to resolve dependencies.
@@ -279,15 +291,15 @@ Unicode marks. `--color always` and `--color never` override automatic color sel
 | --- | --- |
 | No `polyfw.toml` found | Run from the consuming project or pass `--project-root DIR` |
 | Configuration version missing or incompatible | Follow [configuration compatibility](configuration.md#configuration-compatibility); choose a compatible CLI or manually migrate the file |
-| A command fails on an unrelated BSP | Fix every registered BSP's workspace and Cargo configuration; most project commands validate the whole registry |
-| No explicit target or multiple targets | Set one `build.target` or `CARGO_BUILD_TARGET`; inspect environment overrides |
+| A command fails on an unrelated platform | Fix each registered firmware's working directory and Cargo configuration; most project commands validate the whole registry |
+| Platform consistency check fails | Inspect its declared target/CPU and Cargo flags; see [consistency checking](configuration.md#check-platform-consistency) |
 | Package has no library target | Add a host-testable library to the firmware package |
-| Multiple binary targets | Set the board's `bin` to a declared binary; `default-run` does not select it for polyfw |
-| Saved board removed or state malformed | Run `polyfw select led-demo` to replace it, or `polyfw select --clear` |
+| Multiple binary targets | Set the firmware's `bin` to a declared binary; `default-run` does not select it for polyfw |
+| Saved firmware removed or state malformed | Run `polyfw select led-demo` to replace it, or `polyfw select --clear` |
 | Unexpected release/dev image | Inspect saved profile with `info`; use an explicit profile or save a new selection |
-| ELF missing | Run the reported build command for that board and profile |
+| ELF missing | Run the reported build command for that firmware and profile |
 | Host lint/test tries to compile hardware code | Separate host-testable library code and configure target-specific binary/test compilation |
-| A local dependency is missing from checks | Inspect `info --board led-demo` and canonical directory-glob matching |
+| A local dependency is missing from checks | Inspect `info --firmware led-demo` and canonical directory-glob matching |
 | `--locked` fails | Update and commit the owning workspace's lockfile with Cargo |
 | Probe missing or ambiguous | Check `polyfw probes`, host permissions and the explicit `--probe` selector |
 | VS Code changes disappear | Disable launch generation before maintaining that file yourself |

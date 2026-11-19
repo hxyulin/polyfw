@@ -6,13 +6,13 @@ use serde::{Serialize, Serializer};
 
 use crate::Result;
 use crate::local_dependencies::LocalDependencies;
-use crate::model::{Bsp, DependencyKind, Metadata, MetadataPackage, Selection};
-use crate::registry::{Context, cargo_metadata, unique_by_bsp};
+use crate::model::{CargoContext, DependencyKind, Metadata, MetadataPackage, Platform, Selection};
+use crate::registry::{Context, cargo_metadata_for, unique_contexts};
 use crate::runner;
 
 pub(crate) struct WorkspaceScope {
-    pub(crate) bsp_id: String,
-    pub(crate) bsp: Bsp,
+    pub(crate) platform: Platform,
+    pub(crate) cargo: CargoContext,
     pub(crate) firmware: BTreeSet<PathBuf>,
     pub(crate) packages: Vec<PackageScope>,
 }
@@ -29,31 +29,30 @@ pub(crate) struct PackageScope {
     #[serde(skip)]
     pub(crate) host_id: String,
     #[serde(skip)]
-    pub(crate) workspace: PathBuf,
+    pub(crate) cargo: CargoContext,
 }
 
 pub(crate) struct HostScope<'a> {
-    pub(crate) workspace: &'a Path,
+    pub(crate) cargo: CargoContext,
     pub(crate) packages: Vec<&'a PackageScope>,
 }
 
 pub(crate) fn host_scopes(scopes: &[WorkspaceScope]) -> Vec<HostScope<'_>> {
-    let mut workspaces = BTreeMap::<&Path, BTreeMap<&Path, &PackageScope>>::new();
+    let mut contexts = BTreeMap::<CargoContext, BTreeMap<&Path, &PackageScope>>::new();
     for package in scopes.iter().flat_map(|scope| &scope.packages) {
-        workspaces
-            .entry(&package.workspace)
+        let mut cargo = package.cargo.clone();
+        cargo.target.clear();
+        contexts
+            .entry(cargo)
             .or_default()
             .insert(&package.manifest_path, package);
     }
-    workspaces
+    contexts
         .into_iter()
-        .map(|(workspace, packages)| {
+        .map(|(cargo, packages)| {
             let mut packages = packages.into_values().collect::<Vec<_>>();
             packages.sort_by_key(|package| (&package.name, &package.manifest_path));
-            HostScope {
-                workspace,
-                packages,
-            }
+            HostScope { cargo, packages }
         })
         .collect()
 }
@@ -66,7 +65,7 @@ fn serialize_target<S: Serializer>(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Platform {
+enum CompilationTarget {
     Embedded,
     Host,
 }
@@ -74,16 +73,18 @@ enum Platform {
 pub(crate) fn resolve(context: &Context, selections: &[Selection]) -> Result<Vec<WorkspaceScope>> {
     let mut resolver = Resolver::new(context)?;
     let mut scopes = Vec::new();
-    for selection in unique_by_bsp(selections) {
-        scopes.push(resolver.board_scope(context, selection, selections)?);
+    for selection in unique_contexts(selections) {
+        scopes.push(resolver.firmware_scope(context, selection, selections)?);
     }
     Ok(scopes)
 }
 
+type MetadataKey = (CargoContext, Option<(String, String)>);
+
 struct Resolver {
     root: PathBuf,
     local_dependencies: LocalDependencies,
-    metadata: BTreeMap<PathBuf, Rc<Metadata>>,
+    metadata: BTreeMap<MetadataKey, Rc<Metadata>>,
     manifests: BTreeMap<PathBuf, PathBuf>,
     owners: BTreeMap<PathBuf, (PathBuf, String)>,
 }
@@ -116,20 +117,36 @@ impl Resolver {
     }
 
     fn metadata(&mut self, workspace: &Path) -> Result<Rc<Metadata>> {
-        let workspace = canonical(workspace)?;
-        if let Some(metadata) = self.metadata.get(&workspace) {
+        let cargo = CargoContext {
+            working_dir: canonical(workspace)?,
+            ..CargoContext::default()
+        };
+        self.metadata_for(&cargo, None)
+    }
+
+    fn metadata_for(
+        &mut self,
+        cargo: &CargoContext,
+        platform: Option<&Platform>,
+    ) -> Result<Rc<Metadata>> {
+        let key = (
+            cargo.clone(),
+            platform.map(|platform| (platform.target.clone(), platform.cpu.clone())),
+        );
+        if let Some(metadata) = self.metadata.get(&key) {
             return Ok(Rc::clone(metadata));
         }
-        let metadata = Rc::new(cargo_metadata(&workspace, true)?);
+        let metadata = Rc::new(cargo_metadata_for(cargo, platform, true)?);
+        let owner = canonical(Path::new(&metadata.workspace_root))?;
         for package in &metadata.packages {
             if metadata.workspace_members.contains(&package.id)
                 && let Some(manifest) = self.path_manifest(package)?
             {
                 self.owners
-                    .insert(manifest, (workspace.clone(), package.id.clone()));
+                    .insert(manifest, (owner.clone(), package.id.clone()));
             }
         }
-        self.metadata.insert(workspace, Rc::clone(&metadata));
+        self.metadata.insert(key, Rc::clone(&metadata));
         Ok(metadata)
     }
 
@@ -171,53 +188,60 @@ impl Resolver {
         })
     }
 
-    fn board_scope(
+    fn firmware_scope(
         &mut self,
-        context: &Context,
+        _context: &Context,
         selection: &Selection,
         selections: &[Selection],
     ) -> Result<WorkspaceScope> {
-        let workspace = canonical(&context.root.join(&selection.bsp.workspace))?;
-        let metadata = self.metadata(&workspace)?;
+        let cargo = &selection.firmware.cargo;
+        let metadata = self.metadata_for(cargo, Some(&selection.platform))?;
         let mut pending = Vec::new();
         let mut firmware = BTreeSet::new();
-        for board in selections
+        for entry in selections
             .iter()
-            .filter(|board| board.board.bsp == selection.board.bsp)
+            .filter(|entry| crate::registry::same_context(entry, selection))
         {
             let package = metadata
-                .workspace_package(&board.board.package)
+                .workspace_package(&entry.firmware.package)
                 .ok_or_else(|| {
                     format!(
-                        "firmware package is not in BSP workspace: {}",
-                        board.board.package
+                        "firmware package is not a workspace member: {}",
+                        entry.firmware.package
                     )
                 })?;
             firmware.insert(canonical(&package.manifest_path)?);
             pending.extend([
-                (workspace.clone(), package.id.clone(), Platform::Embedded),
-                (workspace.clone(), package.id.clone(), Platform::Host),
+                (
+                    Rc::clone(&metadata),
+                    package.id.clone(),
+                    CompilationTarget::Embedded,
+                ),
+                (
+                    Rc::clone(&metadata),
+                    package.id.clone(),
+                    CompilationTarget::Host,
+                ),
             ]);
         }
         let mut visited = BTreeSet::new();
         let mut packages = BTreeMap::<PathBuf, PackageScope>::new();
-        while let Some((workspace, id, platform)) = pending.pop() {
-            let metadata = self.metadata(&workspace)?;
+        while let Some((metadata, id, role)) = pending.pop() {
             let package = metadata
                 .packages
                 .iter()
                 .find(|package| package.id == id)
                 .ok_or_else(|| format!("Cargo metadata has no package: {id}"))?;
-            let platform = if package
+            let role = if package
                 .targets
                 .iter()
                 .any(|target| target.kind.iter().any(|kind| kind == "proc-macro"))
             {
-                Platform::Host
+                CompilationTarget::Host
             } else {
-                platform
+                role
             };
-            if !visited.insert((workspace.clone(), id.clone(), platform)) {
+            if !visited.insert((Rc::as_ptr(&metadata), id.clone(), role)) {
                 continue;
             }
             if let Some(manifest) = self.path_manifest(package)?
@@ -227,23 +251,38 @@ impl Resolver {
                         .contains(manifest.parent().ok_or("package manifest has no parent")?)?)
             {
                 if let Some(entry) = packages.get_mut(&manifest) {
-                    if platform == Platform::Embedded {
+                    if role == CompilationTarget::Embedded {
                         entry.embedded = true;
                         entry.id = id.clone();
                     }
                 } else {
                     let (owner, host_id) = self.owner(&manifest)?;
-                    // The BSP graph omits non-member packages' dev-dependencies.
-                    pending.push((owner.clone(), host_id.clone(), Platform::Host));
+                    let (host_metadata, host_cargo) = if owner == cargo.workspace {
+                        (
+                            self.metadata_for(cargo, Some(&selection.platform))?,
+                            cargo.clone(),
+                        )
+                    } else {
+                        let data = self.metadata(&owner)?;
+                        let host_cargo = CargoContext {
+                            working_dir: owner.clone(),
+                            workspace: owner,
+                            target_dir: data.target_directory.clone(),
+                            build_dir: data.build_directory.clone(),
+                            ..CargoContext::default()
+                        };
+                        (data, host_cargo)
+                    };
+                    pending.push((host_metadata, host_id.clone(), CompilationTarget::Host));
                     packages.insert(
                         manifest.clone(),
                         PackageScope {
                             name: package.name.clone(),
                             manifest_path: project_relative(&self.root, &manifest),
-                            embedded: platform == Platform::Embedded,
+                            embedded: role == CompilationTarget::Embedded,
                             id: id.clone(),
                             host_id,
-                            workspace: owner,
+                            cargo: host_cargo,
                         },
                     );
                 }
@@ -259,11 +298,13 @@ impl Resolver {
                 .ok_or_else(|| format!("Cargo metadata has no dependency node: {id}"))?;
             for dependency in &node.deps {
                 for kind in &dependency.dep_kinds {
-                    let platform = match kind.kind {
-                        None => platform,
-                        Some(DependencyKind::Build | DependencyKind::Dev) => Platform::Host,
+                    let role = match kind.kind {
+                        None => role,
+                        Some(DependencyKind::Build | DependencyKind::Dev) => {
+                            CompilationTarget::Host
+                        }
                     };
-                    pending.push((workspace.clone(), dependency.pkg.clone(), platform));
+                    pending.push((Rc::clone(&metadata), dependency.pkg.clone(), role));
                 }
             }
         }
@@ -272,11 +313,11 @@ impl Resolver {
             (&left.name, &left.manifest_path).cmp(&(&right.name, &right.manifest_path))
         });
         Ok(WorkspaceScope {
-            bsp_id: selection.board.bsp.clone(),
-            bsp: selection.bsp.clone(),
+            platform: selection.platform.clone(),
+            cargo: cargo.clone(),
             firmware: firmware
-                .into_iter()
-                .map(|manifest| project_relative(&self.root, &manifest))
+                .iter()
+                .map(|manifest| project_relative(&self.root, manifest))
                 .collect(),
             packages,
         })
@@ -320,17 +361,20 @@ mod tests {
         let context = fixture("directory-patterns");
         let registry_path = context.root.join("polyfw.toml");
         let source = fs::read_to_string(&registry_path).unwrap();
-        for (patterns, expected) in [
-            (vec![], vec!["board-a"]),
-            (vec!["shared"], vec!["board-a"]),
-            (vec!["missing/**"], vec!["board-a"]),
-            (vec!["shared/*"], vec!["board-a", "outside"]),
-            (vec!["./shared/outside/"], vec!["board-a", "outside"]),
+        for (patterns, mut expected) in [
+            (vec![], vec!["firmware-a"]),
+            (vec!["shared"], vec!["firmware-a"]),
+            (vec!["missing/**"], vec!["firmware-a"]),
+            (vec!["shared/*"], vec!["firmware-a", "outside"]),
+            (vec!["./shared/outside/"], vec!["firmware-a", "outside"]),
             (
                 vec!["shared/**"],
-                vec!["board-a", "outside", "outside-test-helper"],
+                vec!["firmware-a", "outside", "outside-test-helper"],
             ),
-            (vec!["bsp/test/common-b"], vec!["board-a", "common-b"]),
+            (
+                vec!["platform/test/common-b"],
+                vec!["firmware-a", "common-b"],
+            ),
         ] {
             fs::write(
                 &registry_path,
@@ -344,15 +388,16 @@ mod tests {
                 .iter()
                 .map(|package| package.name.as_str())
                 .collect::<Vec<_>>();
+            expected.sort();
             assert_eq!(names, expected, "{patterns:?}");
             assert!(
                 scopes[0]
                     .firmware
-                    .contains(Path::new("bsp/test/board-a/Cargo.toml"))
+                    .contains(Path::new("platform/test/firmware-a/Cargo.toml"))
             );
             let report = crate::info::Report::load(&context, Some("one")).unwrap();
             assert_eq!(
-                report.boards["one"]
+                report.firmwares["one"]
                     .local_dependencies
                     .as_ref()
                     .unwrap()
@@ -369,22 +414,22 @@ mod tests {
         let external = context.root.with_extension("external");
         let _ = fs::remove_dir_all(&external);
         fs::rename(context.root.join("shared/outside"), &external).unwrap();
-        let common = context.root.join("bsp/test/common-b");
+        let common = context.root.join("platform/test/common-b");
         let manifest = external.join("Cargo.toml");
         let source = fs::read_to_string(&manifest).unwrap();
         fs::write(
             &manifest,
-            source.replace("\"../../bsp/test/common-b\"", &format!("{common:?}")),
+            source.replace("\"../../platform/test/common-b\"", &format!("{common:?}")),
         )
         .unwrap();
-        let board = context.root.join("bsp/test/board-a/Cargo.toml");
-        let source = fs::read_to_string(&board).unwrap();
+        let firmware = context.root.join("platform/test/firmware-a/Cargo.toml");
+        let source = fs::read_to_string(&firmware).unwrap();
         fs::write(
-            board,
+            firmware,
             source.replace("\"../../../shared/outside\"", &format!("{external:?}")),
         )
         .unwrap();
-        lock(&context.root.join("bsp/test"));
+        lock(&context.root.join("platform/test"));
         lock(&external);
         let registry = context.root.join("polyfw.toml");
         let source = fs::read_to_string(&registry).unwrap();
@@ -397,7 +442,7 @@ mod tests {
             .unwrap();
             let context = Context::load(context.root.clone()).unwrap();
             let report = crate::info::Report::load(&context, Some("one")).unwrap();
-            let packages = report.boards["one"].local_dependencies.as_ref().unwrap();
+            let packages = report.firmwares["one"].local_dependencies.as_ref().unwrap();
             let outside = packages
                 .iter()
                 .find(|package| package.name == "outside")
@@ -417,15 +462,15 @@ mod tests {
         fs::remove_dir_all(context.root).unwrap();
         fs::remove_dir_all(external).unwrap();
     }
-    use crate::cli::{BoardArgs, Task};
+    use crate::cli::{FirmwareArgs, Task};
     use crate::commands;
     use crate::ui::Ui;
 
     #[test]
-    fn a_board_scope_follows_all_dependency_kinds_and_keeps_platform_uses_separate() {
+    fn a_firmware_scope_follows_all_dependency_kinds_and_keeps_platform_uses_separate() {
         let context = fixture("dependencies");
-        let board = context.selection("one").unwrap();
-        let scopes = resolve(&context, &[board]).unwrap();
+        let firmware = context.selection("one").unwrap();
+        let scopes = resolve(&context, &[firmware]).unwrap();
         assert_eq!(scopes.len(), 1);
         let packages = scopes[0]
             .packages
@@ -435,11 +480,11 @@ mod tests {
         assert_eq!(
             packages,
             [
-                ("board-a", true),
                 ("build-helper", false),
                 ("common-a", true),
                 ("common-b", true),
                 ("dev-helper", false),
+                ("firmware-a", true),
                 ("host-leaf", false),
                 ("macro-helper", false),
                 ("mixed", true),
@@ -452,13 +497,13 @@ mod tests {
     }
 
     #[test]
-    fn all_boards_share_one_scope_and_check_each_common_package_once() {
-        let context = fixture("all-boards");
-        let boards = [
+    fn all_firmwares_share_one_scope_and_check_each_common_package_once() {
+        let context = fixture("all-firmwares");
+        let firmwares = [
             context.selection("one").unwrap(),
             context.selection("two").unwrap(),
         ];
-        let scopes = resolve(&context, &boards).unwrap();
+        let scopes = resolve(&context, &firmwares).unwrap();
         assert_eq!(scopes.len(), 1);
         let names = scopes[0]
             .packages
@@ -468,7 +513,7 @@ mod tests {
         let unique = names.iter().copied().collect::<BTreeSet<_>>();
         assert_eq!(names.len(), unique.len());
         assert_eq!(names.len(), 13);
-        assert!(unique.contains("board-b"));
+        assert!(unique.contains("firmware-b"));
         assert!(unique.contains("other-only"));
         assert!(!unique.contains("unused"));
         assert!(unique.contains("outside"));
@@ -481,8 +526,8 @@ mod tests {
         let context = fixture("shared-package");
         let first = context.selection("one").unwrap();
         let second = context.selection("one-alternate").unwrap();
-        assert_eq!(first.board.resolved_bin, "board-a");
-        assert_eq!(second.board.resolved_bin, "board-a-alternate");
+        assert_eq!(first.firmware.resolved_bin, "firmware-a");
+        assert_eq!(second.firmware.resolved_bin, "firmware-a-alternate");
         assert_ne!(first.id, second.id);
         let expected = resolve(&context, std::slice::from_ref(&first)).unwrap();
         let expected_packages = expected[0]
@@ -502,7 +547,7 @@ mod tests {
             assert_eq!(
                 packages
                     .iter()
-                    .filter(|(name, _)| *name == "board-a")
+                    .filter(|(name, _)| *name == "firmware-a")
                     .count(),
                 1
             );
@@ -536,7 +581,7 @@ mod tests {
         }
         let context = fixture("lint-other-bin");
         let root = context.root.clone();
-        let path = root.join("bsp/test/board-a/src/alternate.rs");
+        let path = root.join("platform/test/firmware-a/src/alternate.rs");
         let source = fs::read_to_string(&path).unwrap();
         fs::write(
             path,
@@ -545,10 +590,10 @@ mod tests {
         .unwrap();
         let error = commands::run(
             context,
-            Task::Lint(BoardArgs {
-                board: Some("one".into()),
+            Task::Lint(FirmwareArgs {
+                firmware: Some("one".into()),
                 select: false,
-                all_boards: false,
+                all_firmwares: false,
             }),
             &Ui::new(ColorChoice::Never),
         )
@@ -559,15 +604,15 @@ mod tests {
     }
 
     #[test]
-    fn a_board_can_verify_with_std_helpers_without_checking_unrelated_packages() {
+    fn a_firmware_can_verify_with_std_helpers_without_checking_unrelated_packages() {
         let context = fixture("verify");
         let root = context.root.clone();
         let _ = commands::run(
             context,
-            Task::Verify(BoardArgs {
-                board: Some("one".into()),
+            Task::Verify(FirmwareArgs {
+                firmware: Some("one".into()),
                 select: false,
-                all_boards: false,
+                all_firmwares: false,
             }),
             &Ui::new(ColorChoice::Never),
         )
@@ -656,7 +701,7 @@ mod tests {
         let external = context.root.with_extension("external");
         let _ = fs::remove_dir_all(&external);
         fs::rename(context.root.join("shared/outside"), &external).unwrap();
-        let common = context.root.join("bsp/test/common-b");
+        let common = context.root.join("platform/test/common-b");
         fs::write(
             external.join("Cargo.toml"),
             format!(
@@ -666,14 +711,14 @@ mod tests {
             ),
         )
         .unwrap();
-        let board = context.root.join("bsp/test/board-a/Cargo.toml");
-        let manifest = fs::read_to_string(&board).unwrap();
+        let firmware = context.root.join("platform/test/firmware-a/Cargo.toml");
+        let manifest = fs::read_to_string(&firmware).unwrap();
         fs::write(
-            board,
+            firmware,
             manifest.replace("\"../../../shared/outside\"", &format!("{external:?}")),
         )
         .unwrap();
-        lock(&context.root.join("bsp/test"));
+        lock(&context.root.join("platform/test"));
         let scopes = resolve(&context, &[context.selection("one").unwrap()]).unwrap();
         assert!(
             scopes[0]
@@ -692,26 +737,26 @@ mod tests {
     }
 
     #[test]
-    fn a_reached_firmware_library_is_checked_even_when_its_board_is_not_selected() {
+    fn a_reached_firmware_library_is_checked_even_when_its_firmware_is_not_selected() {
         let context = fixture("firmware-dependency");
-        let manifest = context.root.join("bsp/test/board-a/Cargo.toml");
+        let manifest = context.root.join("platform/test/firmware-a/Cargo.toml");
         let source = fs::read_to_string(&manifest).unwrap();
         fs::write(
             manifest,
             source.replacen(
                 "[dependencies]",
-                "[dependencies]\nboard-b = { path = \"../board-b\" }",
+                "[dependencies]\nfirmware-b = { path = \"../firmware-b\" }",
                 1,
             ),
         )
         .unwrap();
-        lock(&context.root.join("bsp/test"));
+        lock(&context.root.join("platform/test"));
         let scopes = resolve(&context, &[context.selection("one").unwrap()]).unwrap();
         assert!(
             scopes[0]
                 .packages
                 .iter()
-                .any(|package| package.name == "board-b" && package.embedded)
+                .any(|package| package.name == "firmware-b" && package.embedded)
         );
         assert!(
             scopes[0]
@@ -729,7 +774,7 @@ mod tests {
         fs::create_dir_all(duplicate.join("src")).unwrap();
         fs::write(
             duplicate.join("Cargo.toml"),
-            "[package]\nname = \"board-a\"\nversion = \"0.2.0\"\nedition = \"2024\"\n\
+            "[package]\nname = \"firmware-a\"\nversion = \"0.2.0\"\nedition = \"2024\"\n\
              [workspace]\nresolver = \"3\"\n",
         )
         .unwrap();
@@ -738,25 +783,25 @@ mod tests {
             "#![no_std]\n#![forbid(unsafe_code)]\n",
         )
         .unwrap();
-        let manifest = context.root.join("bsp/test/board-a/Cargo.toml");
+        let manifest = context.root.join("platform/test/firmware-a/Cargo.toml");
         let source = fs::read_to_string(&manifest).unwrap();
         fs::write(
             manifest,
             source.replacen(
                 "[dependencies]",
                 "[dependencies]\n\
-                 second-common = { package = \"board-a\", path = \"../../../shared/duplicate\" }",
+                 second-common = { package = \"firmware-a\", path = \"../../../shared/duplicate\" }",
                 1,
             ),
         )
         .unwrap();
         lock(&duplicate);
-        lock(&context.root.join("bsp/test"));
+        lock(&context.root.join("platform/test"));
         let scopes = resolve(&context, &[context.selection("one").unwrap()]).unwrap();
         let duplicates = scopes[0]
             .packages
             .iter()
-            .filter(|package| package.name == "board-a")
+            .filter(|package| package.name == "firmware-a")
             .collect::<Vec<_>>();
         assert_eq!(duplicates.len(), 2);
         assert_ne!(duplicates[0].manifest_path, duplicates[1].manifest_path);
@@ -764,22 +809,22 @@ mod tests {
         assert!(duplicates.iter().all(|package| package.embedded));
         let report = crate::info::Report::load(&context, Some("one")).unwrap();
         assert_eq!(
-            report.boards["one"]
+            report.firmwares["one"]
                 .local_dependencies
                 .as_ref()
                 .unwrap()
                 .iter()
-                .filter(|package| package.name == "board-a")
+                .filter(|package| package.name == "firmware-a")
                 .count(),
             1
         );
         let root = context.root.clone();
         let _ = commands::run(
             context,
-            Task::Verify(BoardArgs {
-                board: Some("one".into()),
+            Task::Verify(FirmwareArgs {
+                firmware: Some("one".into()),
                 select: false,
-                all_boards: false,
+                all_firmwares: false,
             }),
             &Ui::new(ColorChoice::Never),
         )
@@ -788,7 +833,7 @@ mod tests {
     }
 
     #[test]
-    fn owning_workspace_default_features_add_only_host_checks_to_the_board_scope() {
+    fn owning_workspace_default_features_add_only_host_checks_to_the_firmware_scope() {
         let context = fixture("owner-defaults");
         let outside = context.root.join("shared/outside");
         let helper = outside.join("default-helper");
@@ -814,7 +859,7 @@ mod tests {
             ) + "\n[features]\ndefault = [\"dep:default-helper\"]\n",
         )
         .unwrap();
-        let manifest = context.root.join("bsp/test/board-a/Cargo.toml");
+        let manifest = context.root.join("platform/test/firmware-a/Cargo.toml");
         let source = fs::read_to_string(&manifest).unwrap();
         fs::write(
             manifest,
@@ -825,7 +870,7 @@ mod tests {
         )
         .unwrap();
         lock(&outside);
-        lock(&context.root.join("bsp/test"));
+        lock(&context.root.join("platform/test"));
         let scopes = resolve(&context, &[context.selection("one").unwrap()]).unwrap();
         let helper = scopes[0]
             .packages
@@ -855,7 +900,7 @@ mod tests {
             .unwrap()
             .join(format!("polyfw-scope-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         fs::create_dir_all(workspace.join(".cargo")).unwrap();
         fs::write(
             root.join("rust-toolchain.toml"),
@@ -866,7 +911,7 @@ mod tests {
             workspace.join("Cargo.toml"),
             "[workspace]\nresolver = \"3\"\n\
              members = [\n\
-             \"board-a\", \"board-b\", \"common-a\", \"common-b\",\n\
+             \"firmware-a\", \"firmware-b\", \"common-a\", \"common-b\",\n\
              \"build-helper\", \"dev-helper\", \"macro-helper\", \"host-leaf\",\n\
              \"mixed\", \"optional-common\", \"disabled-optional\", \"other-only\", \"unused\",\n\
              ]\n",
@@ -883,7 +928,7 @@ mod tests {
         let unused = "#![forbid(unsafe_code)]\ncompile_error!(\"unselected package\");\n";
         for (name, manifest, source) in [
             (
-                "board-a",
+                "firmware-a",
                 "[dependencies]\noutside = { path = \"../../../shared/outside\" }\n\
                  macro-helper = { path = \"../macro-helper\" }\n\
                  mixed = { path = \"../mixed\" }\n\
@@ -894,7 +939,7 @@ mod tests {
                 library,
             ),
             (
-                "board-b",
+                "firmware-b",
                 "[dependencies]\ncommon-a = { path = \"../common-a\", features = [\"extra\"] }\n\
                  other-only = { path = \"../other-only\" }\n",
                 unused,
@@ -948,7 +993,7 @@ mod tests {
             .unwrap();
             fs::write(directory.join("src/lib.rs"), source).unwrap();
         }
-        for name in ["board-a", "board-b"] {
+        for name in ["firmware-a", "firmware-b"] {
             let directory = workspace.join(name);
             let manifest = fs::read_to_string(directory.join("Cargo.toml")).unwrap();
             fs::write(
@@ -966,23 +1011,23 @@ mod tests {
             )
             .unwrap();
         }
-        let manifest = workspace.join("board-a/Cargo.toml");
+        let manifest = workspace.join("firmware-a/Cargo.toml");
         let source = fs::read_to_string(&manifest).unwrap();
         fs::write(
             manifest,
             format!(
-                "{source}\n[[bin]]\nname = \"board-a-alternate\"\n\
+                "{source}\n[[bin]]\nname = \"firmware-a-alternate\"\n\
                  path = \"src/alternate.rs\"\ntest = false\n"
             ),
         )
         .unwrap();
         fs::copy(
-            workspace.join("board-a/src/main.rs"),
-            workspace.join("board-a/src/alternate.rs"),
+            workspace.join("firmware-a/src/main.rs"),
+            workspace.join("firmware-a/src/alternate.rs"),
         )
         .unwrap();
         fs::write(
-            workspace.join("board-a/build.rs"),
+            workspace.join("firmware-a/build.rs"),
             "#![forbid(unsafe_code)]\nfn main() { let _ = build_helper::value(); }\n",
         )
         .unwrap();
@@ -997,7 +1042,7 @@ mod tests {
             outside.join("Cargo.toml"),
             "[package]\nname = \"outside\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
              [workspace]\nresolver = \"3\"\nmembers = [\"test-helper\"]\n\
-             [dependencies]\ncommon-b = { path = \"../../bsp/test/common-b\" }\n\
+             [dependencies]\ncommon-b = { path = \"../../platform/test/common-b\" }\n\
              [dev-dependencies]\n\
              outside-test-helper = { path = \"test-helper\" }\n",
         )
@@ -1025,14 +1070,14 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("polyfw.toml"),
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.board-family]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.firmware-family]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/firmware-family\"\nworking-dir = \"platform/test\"\n\
              chip = \"test\"\n\
-             [boards.one]\ndescription = \"first board\"\n\
-             bsp = \"board-family\"\npackage = \"board-a\"\nbin = \"board-a\"\n\
-             [boards.one-alternate]\ndescription = \"same package, another binary\"\n\
-             bsp = \"board-family\"\npackage = \"board-a\"\nbin = \"board-a-alternate\"\n\
-             [boards.two]\ndescription = \"second board\"\n\
-             bsp = \"board-family\"\npackage = \"board-b\"\n",
+             [firmwares.one]\ndescription = \"first firmware\"\n\
+             platform = \"firmware-family\"\npackage = \"firmware-a\"\nbin = \"firmware-a\"\n\
+             [firmwares.one-alternate]\ndescription = \"same package, another binary\"\n\
+             platform = \"firmware-family\"\npackage = \"firmware-a\"\nbin = \"firmware-a-alternate\"\n\
+             [firmwares.two]\ndescription = \"second firmware\"\n\
+             platform = \"firmware-family\"\npackage = \"firmware-b\"\n",
         )
         .unwrap();
         for directory in [&workspace, &outside] {

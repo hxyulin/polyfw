@@ -11,8 +11,9 @@ use crate::ui::color_enabled;
 
 /// Build, check, flash and monitor embedded Rust firmware registered in polyfw.toml.
 ///
-/// A board ID names a programmable target. Its BSP identifies the consuming Cargo
-/// workspace and probe chip. Cargo owns compiler settings, dependencies and profiles.
+/// A firmware ID selects a Cargo package/binary and one Platform. The Platform declares target,
+/// CPU and chip; directory settings inherit from Platform to Firmware. Cargo owns configuration
+/// merging, workspace membership, dependencies and profiles.
 #[derive(Debug, Parser)]
 #[command(
     name = "polyfw",
@@ -20,19 +21,19 @@ use crate::ui::color_enabled;
     version,
     after_long_help = "Project and selection:
   Find polyfw.toml in the current directory or an ancestor, or pass --project-root DIR.
-  Pass BOARD for one invocation, or omit it to use the saved board and profile.
-  If no board is saved, choose interactively; invalid saved state is an error.
-  Use select or --select to save a board. Saving keeps only an explicit profile.
-  Build/check/clean commands accept --all-boards; hardware commands use one board.
-  Pickers require a terminal. Use BOARD or --all-boards in scripts.
+  Pass FIRMWARE for one invocation, or omit it to use the saved firmware and profile.
+  If no firmware is saved, choose interactively; invalid saved state is an error.
+  Use select or --select to save a firmware. Saving keeps only an explicit profile.
+  Build/check/clean commands accept --all-firmwares; hardware commands use one firmware.
+  Pickers require a terminal. Use FIRMWARE or --all-firmwares in scripts.
   run, flash and attach use an existing image: run build after changing firmware source.
 
 Examples:
   polyfw init
   polyfw info
   polyfw select led-demo --release
-  polyfw verify --all-boards
-  polyfw build --all-boards --release
+  polyfw verify --all-firmwares
+  polyfw build --all-firmwares --release
   polyfw probes
   polyfw run
   polyfw select buzzer-demo --release
@@ -110,40 +111,40 @@ impl Cli {
 }
 
 #[derive(Clone, Debug, Args)]
-pub(crate) struct BoardArgs {
-    /// Board ID for this invocation; otherwise use the saved board or a picker.
+pub(crate) struct FirmwareArgs {
+    /// Firmware ID for this invocation; otherwise use the saved firmware or a picker.
     ///
-    /// Use an ID from polyfw info. A named or picked board is transient unless
-    /// --select is passed. The picker opens only when no board is saved; stale or
-    /// malformed saved state is an error, including with a one-time BOARD override.
-    /// Replace it with polyfw select BOARD or clear it with polyfw select --clear.
-    /// Pickers require a terminal; name a board in scripts.
+    /// Use an ID from polyfw info. A named or picked firmware is transient unless
+    /// --select is passed. The picker opens only when no firmware is saved; stale or
+    /// malformed saved state is an error, including with a one-time FIRMWARE override.
+    /// Replace it with polyfw select FIRMWARE or clear it with polyfw select --clear.
+    /// Pickers require a terminal; name a firmware in scripts.
     #[arg(verbatim_doc_comment)]
-    pub(crate) board: Option<String>,
-    /// Save the named board, or always open the picker and save its choice.
+    pub(crate) firmware: Option<String>,
+    /// Save the named firmware, or always open the picker and save its choice.
     ///
-    /// Save before running the action. Without BOARD, the picker opens even if a
-    /// board is already saved and requires a terminal. State is stored in
+    /// Save before running the action. Without FIRMWARE, the picker opens even if a
+    /// firmware is already saved and requires a terminal. State is stored in
     /// .polyfw-state/selected; saving retains only an explicitly supplied profile.
     #[arg(short, long, verbatim_doc_comment)]
     pub(crate) select: bool,
-    /// Operate on every registered board, ignoring saved board/profile state.
+    /// Operate on every registered firmware, ignoring saved firmware/profile state.
     ///
-    /// Include every registered board. Conflicts with BOARD and --select.
+    /// Include every registered firmware. Conflicts with FIRMWARE and --select.
     #[arg(
         short = 'a',
-        long = "all-boards",
-        conflicts_with_all = ["board", "select"],
+        long = "all-firmwares",
+        conflicts_with_all = ["firmware", "select"],
         verbatim_doc_comment
     )]
-    pub(crate) all_boards: bool,
+    pub(crate) all_firmwares: bool,
 }
 
 #[derive(Debug, Default, Args)]
 pub(crate) struct ProbeArgs {
-    /// Board ID; otherwise use the saved board or pick one if no board is saved.
-    pub(crate) board: Option<String>,
-    /// Save BOARD before acting, or always open the picker and save its choice.
+    /// Firmware ID; otherwise use the saved firmware or pick one if no firmware is saved.
+    pub(crate) firmware: Option<String>,
+    /// Save FIRMWARE before acting, or always open the picker and save its choice.
     #[arg(short, long)]
     pub(crate) select: bool,
     /// Use probe VID:PID[:SERIAL] for this session; otherwise let probe-rs choose.
@@ -167,8 +168,8 @@ pub(crate) struct ProfileArgs {
     pub(crate) release: bool,
     /// Use this Cargo profile instead of the saved profile.
     ///
-    /// Single-board actions otherwise inherit the saved profile. Saving a selection
-    /// and --all-boards use only an explicit profile. Without a resolved profile,
+    /// Single-firmware actions otherwise inherit the saved profile. Saving a selection
+    /// and --all-firmwares use only an explicit profile. Without a resolved profile,
     /// omit the Cargo flag and use its default.
     #[arg(long, value_name = "NAME")]
     pub(crate) profile: Option<Profile>,
@@ -245,12 +246,12 @@ pub(crate) enum Task {
         output: Option<PathBuf>,
     },
 
-    /// Inspect registered boards, existing images and the saved selection.
+    /// Inspect registered firmwares, existing images and the saved selection.
     ///
-    /// List boards and their referenced BSPs, with dev/release ELF presence and any
-    /// different saved profile. --board [BOARD] adds one board's resolved configuration,
-    /// ELF paths and local check dependencies. Omit BOARD after the flag to pick one
-    /// without saving. A stale saved board is reported; malformed state is an error.
+    /// List firmwares and their referenced platforms, with dev/release ELF presence and any
+    /// different saved profile. --firmware [FIRMWARE] adds one firmware's resolved configuration,
+    /// ELF paths and local check dependencies. Omit FIRMWARE after the flag to pick one
+    /// without saving. A stale saved firmware is reported; malformed state is an error.
     /// This query does not build, write state/editor files or connect to hardware.
     /// ELF presence establishes neither source freshness nor a match with running firmware.
     #[command(
@@ -258,23 +259,23 @@ pub(crate) enum Task {
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw info
-  polyfw info --board
-  polyfw info --board led-demo
-  polyfw info --board buzzer-demo --json"
+  polyfw info --firmware
+  polyfw info --firmware led-demo
+  polyfw info --firmware buzzer-demo --json"
     )]
     Info {
-        /// Show one board's details; omit BOARD to pick interactively without saving.
-        #[arg(long, value_name = "BOARD")]
-        board: Option<Option<String>>,
+        /// Show one firmware's details; omit FIRMWARE to pick interactively without saving.
+        #[arg(long, value_name = "FIRMWARE")]
+        firmware: Option<Option<String>>,
         /// Write the selected view as JSON to stdout; prompts use stderr.
         #[arg(long)]
         json: bool,
     },
 
-    /// Save a board and explicit profile, or clear the saved selection.
+    /// Save a firmware and explicit profile, or clear the saved selection.
     ///
-    /// Save BOARD in .polyfw-state/selected for later commands. Saving without a
-    /// profile clears the previous profile. With no BOARD, always open the picker;
+    /// Save FIRMWARE in .polyfw-state/selected for later commands. Saving without a
+    /// profile clears the previous profile. With no FIRMWARE, always open the picker;
     /// this requires a terminal. When editor generation is enabled, saving also replaces
     /// the whole VS Code launch file.
     /// --clear removes saved state and the managed launch file without needing Cargo.
@@ -288,15 +289,15 @@ pub(crate) enum Task {
   polyfw select --clear"
     )]
     Select {
-        /// Save this board ID; otherwise open the picker.
-        board: Option<String>,
+        /// Save this firmware ID; otherwise open the picker.
+        firmware: Option<String>,
         /// Remove saved selection and the managed VS Code launch file.
         ///
         /// Does not parse the old state or load Cargo workspaces. Editor files are
-        /// untouched when generation is disabled. Conflicts with BOARD and profile flags.
+        /// untouched when generation is disabled. Conflicts with FIRMWARE and profile flags.
         #[arg(
             long,
-            conflicts_with_all = ["board", "dev", "release", "profile"],
+            conflicts_with_all = ["firmware", "dev", "release", "profile"],
             verbatim_doc_comment
         )]
         clear: bool,
@@ -304,26 +305,27 @@ pub(crate) enum Task {
         profile: ProfileArgs,
     },
 
-    /// Clean a firmware package or all BSP firmware caches.
+    /// Clean a firmware package or the registered Cargo output directories.
     ///
-    /// One board cleans its whole package, including other binaries and boards sharing
-    /// it in the BSP. --all-boards cleans each BSP's full cache, including dependencies.
-    /// The notice lists affected boards. All cleaning stays under target/firmware/<bsp>.
+    /// One firmware uses Cargo package cleaning for its target and the host target, with
+    /// Cargo's default profile rules. --all-firmwares performs full cleaning per directory
+    /// context, including dependencies and outputs from unregistered/manual Cargo builds
+    /// that share those directories. The notice lists registered firmware sharing them.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw clean led-demo
-  polyfw clean --all-boards"
+  polyfw clean --all-firmwares"
     )]
-    Clean(BoardArgs),
+    Clean(FirmwareArgs),
 
-    /// Build the selected board or every registered board with Cargo.
+    /// Build the selected firmware or every registered firmware with Cargo.
     ///
-    /// Build each board separately from its BSP workspace with --locked and that
-    /// workspace's target/settings. An explicit registry bin selects --bin; otherwise
-    /// keep Cargo's default targets. Store artifacts under target/firmware/<bsp>.
-    /// Inherit a saved profile for one board, or override it with a profile flag.
-    /// --all-boards uses only the explicitly supplied profile.
+    /// Build each firmware from its resolved working directory with --locked and the
+    /// explicit Platform target. An explicit bin selects --bin; otherwise retain Cargo
+    /// defaults. Output directories and check-platform inherit from the Platform.
+    /// Inherit a saved profile for one firmware, or override it with a profile flag.
+    /// --all-firmwares uses only the explicitly supplied profile.
     #[command(
         visible_alias = "b",
         verbatim_doc_comment,
@@ -331,11 +333,11 @@ pub(crate) enum Task {
   polyfw build
   polyfw build --select led-demo --release
   polyfw build buzzer-demo --release
-  polyfw build --all-boards --release"
+  polyfw build --all-firmwares --release"
     )]
     Build {
         #[command(flatten)]
-        boards: BoardArgs,
+        firmwares: FirmwareArgs,
         #[command(flatten)]
         profile: ProfileArgs,
     },
@@ -345,7 +347,7 @@ pub(crate) enum Task {
 
     /// Flash and verify an existing ELF, then start and monitor RTT/defmt.
     ///
-    /// Use the resolved board/profile image without building. Run polyfw build after
+    /// Use the resolved firmware/profile image without building. Run polyfw build after
     /// source changes. Omitted probe and speed options are delegated to probe-rs.
     /// Ctrl-C ends the probe-rs session; firmware may continue running.
     #[command(
@@ -365,9 +367,9 @@ pub(crate) enum Task {
         monitor: MonitorArgs,
     },
 
-    /// Flash and verify an existing ELF, reset the board, then exit.
+    /// Flash and verify an existing ELF, reset the firmware, then exit.
     ///
-    /// Use the resolved board/profile image without building. Run polyfw build after
+    /// Use the resolved firmware/profile image without building. Run polyfw build after
     /// source changes. This command does not start an RTT monitor.
     #[command(
         visible_aliases = ["f", "download", "d"],
@@ -385,7 +387,7 @@ pub(crate) enum Task {
 
     /// Attach an RTT/defmt monitor using the matching existing ELF.
     ///
-    /// Does not build or flash. The resolved board/profile ELF must match the image
+    /// Does not build or flash. The resolved firmware/profile ELF must match the image
     /// already running. Connecting can briefly halt the core; --connect-under-reset
     /// asserts the reset line.
     #[command(
@@ -404,7 +406,7 @@ pub(crate) enum Task {
         monitor: MonitorArgs,
     },
 
-    /// Reset one board without building, flashing or requiring an ELF.
+    /// Reset the selected board without building, flashing or requiring an ELF.
     ///
     /// Needs project configuration and probe-rs. Saving with --select also needs Cargo
     /// when VS Code generation is enabled.
@@ -414,36 +416,36 @@ pub(crate) enum Task {
     ///
     /// Run cargo fmt in place for the firmware and reachable path packages matched
     /// by config.local-dependencies. Include whole packages, including other binaries,
-    /// once per owning workspace. Use verify to check formatting without rewriting.
+    /// once per execution context. Use verify to check formatting without rewriting.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw fmt led-demo
   polyfw fmt buzzer-demo
-  polyfw fmt --all-boards"
+  polyfw fmt --all-firmwares"
     )]
-    Fmt(BoardArgs),
+    Fmt(FirmwareArgs),
 
     /// Check firmware and selected local dependencies with MCU and host Clippy.
     ///
     /// Deny warnings. Check runtime libraries and binaries for the MCU, then selected
     /// libraries and tests for the host. config.local-dependencies filters reachable
     /// path packages, including local test helpers. Other binaries in a package are
-    /// included. Group MCU checks per BSP and host checks per owning workspace,
-    /// using workspace defaults and deduplicating packages with --all-boards.
+    /// included. Preserve each resolved working/output directory context. Host checks use
+    /// host-tuple without injected Platform CPU. Target checks honor check-platform.
     #[command(
         verbatim_doc_comment,
         after_long_help = "Examples:
   polyfw lint led-demo
   polyfw lint buzzer-demo
-  polyfw lint --all-boards"
+  polyfw lint --all-firmwares"
     )]
-    Lint(BoardArgs),
+    Lint(FirmwareArgs),
 
     /// Run host tests and doctests for firmware and selected local dependencies.
     ///
-    /// No board hardware is required. Run each package once in its owning workspace
-    /// with --target host-tuple, workspace defaults and dev-dependencies. Use Cargo's
+    /// No hardware is required. Run packages in their resolved host execution contexts
+    /// with --target host-tuple and native dev-dependencies. Use Cargo's
     /// default test targets, including other binaries when their test settings allow.
     /// config.local-dependencies filters reachable path packages and local test helpers.
     #[command(
@@ -452,15 +454,15 @@ pub(crate) enum Task {
         after_long_help = "Examples:
   polyfw test led-demo
   polyfw test buzzer-demo
-  polyfw test --all-boards"
+  polyfw test --all-firmwares"
     )]
-    Test(BoardArgs),
+    Test(FirmwareArgs),
 
     /// Check formatting, run MCU/host Clippy, then run host tests.
     ///
     /// Check without rewriting source, deny lint warnings, and stop at the first
     /// failure. Include selected firmware and reachable path packages matched by
-    /// config.local-dependencies across workspaces. --all-boards checks every board.
+    /// config.local-dependencies across workspaces. --all-firmwares checks every firmware.
     /// Does not build a firmware image. Cargo may need network access for dependencies.
     #[command(
         visible_alias = "v",
@@ -469,9 +471,9 @@ pub(crate) enum Task {
   polyfw verify
   polyfw verify led-demo
   polyfw verify buzzer-demo
-  polyfw verify --all-boards"
+  polyfw verify --all-firmwares"
     )]
-    Verify(BoardArgs),
+    Verify(FirmwareArgs),
 }
 
 impl Task {
@@ -495,26 +497,26 @@ impl Task {
         }
     }
 
-    pub(crate) fn board_args(&self) -> Option<BoardArgs> {
+    pub(crate) fn firmware_args(&self) -> Option<FirmwareArgs> {
         match self {
             Self::Init
             | Self::Schema { .. }
             | Self::Info { .. }
             | Self::Select { .. }
             | Self::Probes => None,
-            Self::Clean(boards)
-            | Self::Build { boards, .. }
-            | Self::Fmt(boards)
-            | Self::Lint(boards)
-            | Self::Test(boards)
-            | Self::Verify(boards) => Some(boards.clone()),
+            Self::Clean(firmwares)
+            | Self::Build { firmwares, .. }
+            | Self::Fmt(firmwares)
+            | Self::Lint(firmwares)
+            | Self::Test(firmwares)
+            | Self::Verify(firmwares) => Some(firmwares.clone()),
             Self::Run { target, .. }
             | Self::Flash { target, .. }
             | Self::Attach { target, .. }
-            | Self::Reset(target) => Some(BoardArgs {
-                board: target.board.clone(),
+            | Self::Reset(target) => Some(FirmwareArgs {
+                firmware: target.firmware.clone(),
                 select: target.select,
-                all_boards: false,
+                all_firmwares: false,
             }),
         }
     }
@@ -557,38 +559,38 @@ mod tests {
     }
 
     #[test]
-    fn info_distinguishes_an_overview_a_picker_and_a_named_board() {
+    fn info_distinguishes_an_overview_a_picker_and_a_named_firmware() {
         for command in ["info", "i"] {
-            for (flags, expected_board, expected_json) in [
+            for (flags, expected_firmware, expected_json) in [
                 (vec![], None, false),
                 (vec!["--json"], None, true),
-                (vec!["--board"], None, false),
-                (vec!["--board", "--json"], None, true),
-                (vec!["--json", "--board"], None, true),
+                (vec!["--firmware"], None, false),
+                (vec!["--firmware", "--json"], None, true),
+                (vec!["--json", "--firmware"], None, true),
                 (
-                    vec!["--board", "sentry-chassis"],
+                    vec!["--firmware", "sentry-chassis"],
                     Some("sentry-chassis"),
                     false,
                 ),
                 (
-                    vec!["--board", "sentry-chassis", "--json"],
+                    vec!["--firmware", "sentry-chassis", "--json"],
                     Some("sentry-chassis"),
                     true,
                 ),
             ] {
-                let has_board_flag = flags.contains(&"--board");
+                let has_firmware_flag = flags.contains(&"--firmware");
                 let mut args = vec!["polyfw", command];
                 args.extend(flags);
                 let task = Cli::try_parse_from(args).unwrap().command.unwrap();
-                assert!(task.board_args().is_none());
+                assert!(task.firmware_args().is_none());
                 assert!(task.profile_override().is_none());
-                let Task::Info { board, json } = task else {
+                let Task::Info { firmware, json } = task else {
                     panic!("expected an info query");
                 };
-                assert_eq!(board.is_some(), has_board_flag);
+                assert_eq!(firmware.is_some(), has_firmware_flag);
                 assert_eq!(
-                    board.as_ref().and_then(|board| board.as_deref()),
-                    expected_board
+                    firmware.as_ref().and_then(|firmware| firmware.as_deref()),
+                    expected_firmware
                 );
                 assert_eq!(json, expected_json);
             }
@@ -600,7 +602,7 @@ mod tests {
             vec!["--release"],
             vec!["--dev"],
             vec!["--select"],
-            vec!["--all-boards"],
+            vec!["--all-firmwares"],
         ] {
             let mut args = vec!["polyfw", "info"];
             args.extend(flags);
@@ -656,45 +658,45 @@ mod tests {
     }
 
     #[test]
-    fn board_commands_accept_select_with_or_without_a_board() {
+    fn firmware_commands_accept_select_with_or_without_a_firmware() {
         for command in ["build", "clean", "fmt", "lint", "test", "verify"] {
             for flag in ["-s", "--select"] {
                 let cli = Cli::try_parse_from(["polyfw", command, flag, "sentry-chassis"])
-                    .expect("select with a board must parse");
-                let boards = cli.command.as_ref().unwrap().board_args().unwrap();
-                assert!(boards.select);
-                assert_eq!(boards.board.as_deref(), Some("sentry-chassis"));
+                    .expect("select with a firmware must parse");
+                let firmwares = cli.command.as_ref().unwrap().firmware_args().unwrap();
+                assert!(firmwares.select);
+                assert_eq!(firmwares.firmware.as_deref(), Some("sentry-chassis"));
 
                 let cli = Cli::try_parse_from(["polyfw", command, flag])
-                    .expect("select without a board must parse");
-                let boards = cli.command.as_ref().unwrap().board_args().unwrap();
-                assert!(boards.select);
-                assert!(boards.board.is_none());
+                    .expect("select without a firmware must parse");
+                let firmwares = cli.command.as_ref().unwrap().firmware_args().unwrap();
+                assert!(firmwares.select);
+                assert!(firmwares.firmware.is_none());
             }
         }
     }
 
     #[test]
-    fn all_boards_conflicts_with_a_board_and_select() {
+    fn all_firmwares_conflicts_with_a_firmware_and_select() {
         for command in ["build", "clean", "fmt", "lint", "test", "verify"] {
             for argument in ["--select", "sentry-chassis"] {
-                let error = Cli::try_parse_from(["polyfw", command, "--all-boards", argument])
-                    .expect_err("all boards must reject single-board options");
+                let error = Cli::try_parse_from(["polyfw", command, "--all-firmwares", argument])
+                    .expect_err("all firmwares must reject single-firmware options");
                 assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
             }
         }
     }
 
     #[test]
-    fn hardware_commands_select_one_board_and_reject_all_boards() {
+    fn hardware_commands_select_one_firmware_and_reject_all_firmwares() {
         for command in ["run", "flash", "attach", "reset"] {
             let cli =
                 Cli::try_parse_from(["polyfw", command, "--select", "sentry-chassis"]).unwrap();
-            let boards = cli.command.as_ref().unwrap().board_args().unwrap();
-            assert!(boards.select);
-            assert_eq!(boards.board.as_deref(), Some("sentry-chassis"));
-            assert!(!boards.all_boards);
-            assert!(Cli::try_parse_from(["polyfw", command, "--all-boards"]).is_err());
+            let firmwares = cli.command.as_ref().unwrap().firmware_args().unwrap();
+            assert!(firmwares.select);
+            assert_eq!(firmwares.firmware.as_deref(), Some("sentry-chassis"));
+            assert!(!firmwares.all_firmwares);
+            assert!(Cli::try_parse_from(["polyfw", command, "--all-firmwares"]).is_err());
             assert!(Cli::try_parse_from(["polyfw", command, "--speed", "0"]).is_err());
         }
         for argument in ["sentry-chassis", "--select", "--probe", "--speed"] {
@@ -750,7 +752,7 @@ mod tests {
                 | Task::Test(_)
                 | Task::Verify(_) => panic!("unexpected command for {command}"),
             };
-            assert_eq!(target.board.as_deref(), Some("sentry-chassis"));
+            assert_eq!(target.firmware.as_deref(), Some("sentry-chassis"));
             assert!(target.select);
             assert_eq!(target.probe.as_deref(), Some("1234:5678:serial"));
             assert_eq!(target.speed_khz.unwrap().get(), 4000);

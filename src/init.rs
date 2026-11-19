@@ -43,15 +43,23 @@ local-dependencies = ["./**"]
 # Saving a selection replaces the entire .vscode/launch.json.
 enabled = true
 
-[bsps.your-bsp]
-# TODO: set the Cargo workspace path relative to this file.
-workspace = "."
+[platforms.your-platform]
+# Cargo commands run here; relative to this file.
+working-dir = "."
+# TODO: set the compilation target and CPU.
+target = "YOUR_TARGET"
+cpu = "YOUR_CPU"
+# Consistency checking defaults to true.
+# check-platform = false
+# Optional intermediate and final-output directory overrides:
+# build-dir = "target/build/your-platform"
+# target-dir = "target/firmware/your-firmware"
 # TODO: set the probe-rs chip name.
 chip = "YOUR_CHIP"
 
-[boards.your-board]
+[firmwares.your-firmware]
 description = "TODO: describe your firmware"
-bsp = "your-bsp"
+platform = "your-platform"
 # TODO: set the firmware package name.
 package = "your-firmware"
 # Required when the package declares multiple binaries:

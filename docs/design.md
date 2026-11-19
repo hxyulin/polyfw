@@ -1,148 +1,147 @@
 # Design
 
 polyfw is an installed host CLI that operates on independently configured firmware projects.
-[Configuration](configuration.md) defines the input contract and [Usage](usage.md) describes
-observable command behavior. This document explains the boundaries that keep those operations
-consistent as the implementation changes.
+[Configuration](configuration.md) owns the input contract and [Usage](usage.md) describes
+observable command behavior.
 
 ## Ownership and boundaries
 
 | Owner | Responsibility |
 | --- | --- |
-| Consuming project | Board registry, Cargo workspaces, Rust pins, targets, features, profiles and firmware sources |
-| polyfw | Configuration template creation, root discovery, registry validation, board/profile selection, check planning, artifact paths and subprocess orchestration |
-| Cargo and rustup | Package resolution, compilation, tests, formatting and compiler selection within each workspace |
+| Consuming project | Firmware packages, platform declarations, Cargo configuration, Rust pins, profiles and sources |
+| polyfw | Registry validation, directory inheritance, firmware/profile selection, consistency checks, check planning, artifact lookup and process orchestration |
+| Cargo and rustup | Workspace membership, configuration merging, fingerprints, compilation, tests and toolchain selection |
 | probe-rs | Probe access, flashing, reset and RTT sessions |
 | VS Code extension | Debug sessions using polyfw's generated launch configuration |
 
-An explicit registry keeps board-to-package and board-to-chip relationships independent of
-repository naming conventions. Per-workspace Cargo configuration allows BSPs with different
-CPUs or targets to coexist. polyfw does not copy consumer sources, own a shared compiler pin,
-or infer firmware from a directory layout.
+A Firmware is a selectable software entry bound to one Platform. A Platform declares target,
+CPU and chip, and may provide defaults for the working/intermediate/final-output directories
+and consistency checking. Workspace means Cargo workspace; there is no separately registered
+workspace identity. A Board is physical hardware.
 
 ## Load only the context a command needs
 
-The entry point parses CLI arguments before project discovery. Help, version and schema work
-without a project; schema is generated directly from the Rust configuration model. Probe listing
-only launches probe-rs from the caller's directory.
+CLI parsing precedes project discovery. Help, version and schema work without a project or Rust
+tools; schema is generated directly from the model. Probe listing only needs probe-rs and runs
+from the caller's directory. Project discovery canonicalizes an explicit root or the nearest
+ancestor containing polyfw.toml; an invalid selected project fails without fallback.
 
-Project discovery selects an explicit root or the nearest ancestor containing `polyfw.toml`, then
-canonicalizes it. A selected invalid project is an error. Installation location, Git boundaries
-and the tool's own source directory do not participate in discovery.
-
-`init` runs before configuration loading. It reuses explicit-root directory validation for the
-current directory or `--project-root`, avoiding ancestor discovery. Exclusive file creation
-enforces the [initializer's no-overwrite contract](configuration.md#initialize-a-configuration),
-including for dangling symlinks, without a separate existence check. The template uses the
-release and authoring-minimum constants from `config_version`; it needs no Cargo, state or
-hardware context.
+`init` runs before loading configuration and uses the exact current/explicit existing directory.
+Exclusive creation enforces the [initializer's no-overwrite contract](configuration.md#initialize-a-configuration).
+It writes only polyfw.toml, using release constants, and needs no Cargo, state or hardware context.
 
 Loading has two stages:
 
-1. **Configuration:** check the version declarations, deserialize with unknown-field rejection,
-   then validate IDs, workspace paths, board-to-BSP references and dependency patterns.
-2. **Cargo resolution:** load metadata for every BSP, require registered firmware packages to
-   belong to their declared workspace, validate library/binary targets, then resolve target/CPU.
+1. Configuration preflight and strict model parsing validate versions, IDs, platform references,
+   required effective working directories, directory strings and dependency patterns.
+2. Cargo resolution independently resolves each Firmware's inherited directories, invokes metadata
+   there, discovers workspace membership/binaries, and records Cargo's effective output paths.
 
-Most project commands require both stages, even when they operate on one board. Selection clearing
-needs only configuration and does not read the old state. Reset also uses configuration alone,
-except when `--select` must generate a launch file and therefore resolve an ELF path.
+Most commands resolve every registered firmware. Clearing selection only loads configuration and
+does not parse old state. Reset also uses configuration alone unless saving selection must generate
+an editor launch file. Dependency graphs are loaded for checks and detailed info. Platform
+consistency checking is a separate selected-build/target-lint preflight, not registry loading.
 
-Cargo validation counts every declared binary, independently of required features or `default-run`.
-An omitted `bin` is inferred into `resolved_bin` for artifact lookup; it remains omitted from build
-arguments. Different packages sharing a BSP cannot produce the same binary name because their
-ELF paths would collide.
+Cargo validation requires a library and at least one binary, counting feature-gated binaries
+independently of default-run. An omitted bin is resolved for artifact lookup while remaining absent
+from build arguments. Same-named binaries follow Cargo's native output behavior.
 
 ## Configuration compatibility
 
-The [configuration guide](configuration.md#configuration-compatibility) owns the public
-version declarations, compatibility rules, editor Schema policy and migration expectations.
+The [configuration guide](configuration.md#configuration-compatibility) owns version declarations,
+compatibility rules, Schema policy and manual migration. `config_version` owns SemVer comparison
+and the two release-maintained baselines. Version preflight runs before strict deserialization,
+Cargo, state writes and hardware; malformed TOML still precedes the version gate.
 
-`config_version` owns SemVer comparison and the two release-maintained compatibility baselines.
-Configuration loading first parses valid TOML and checks its version declarations before strict
-model deserialization. This gives an actionable compatibility error even when a newer file
-contains fields the current model does not recognize. TOML syntax errors still precede the
-version check. Passing the gate does not replace unknown-field rejection or semantic validation.
-
-The gate runs before Cargo resolution, selection/editor writes and hardware actions, within
-the existing [loading boundaries](#load-only-the-context-a-command-needs). Help, version, schema
-and probe listing remain independent of project configuration. Selection clearing and reset
-still validate the configuration without introducing Cargo resolution.
-
-Old contracts remain supported only while the current implementation preserves their original
-meaning. There are no old-field aliases, old-default branches or separate historical parsers;
-a breaking change advances the appropriate compatibility baseline. Representative fixtures
-check actual behavior, the acceptance boundaries and diagnostic priority.
+The 0.2.0 contract raises both baselines to 0.2.0. Older contracts are retained only while their
+meaning remains intact, without aliases or historical parsers. Firmware/Platform renaming applies
+to configuration, CLI, JSON and saved state; the saved-state location remains the same.
 
 ## Workspace and compiler isolation
 
-All Cargo processes use `runner::workspace_cargo` or `workspace_command`: they run from their
-owning workspace and remove inherited `RUSTUP_TOOLCHAIN`. This includes metadata, workspace
-discovery, configuration probes and test-fixture setup. The installed CLI's compiler must not
-become an implicit compiler override for a consumer.
+All Cargo children use runner::workspace_cargo/workspace_command or the context-aware command
+constructors, including metadata and fixtures. They clear inherited RUSTUP_TOOLCHAIN. Firmware
+commands preserve the resolved working-dir; a discovered workspace root does not change cwd.
+Cargo/rustup search that directory's physical ancestry. Workspace membership still owns the
+lockfile and manifest profiles, including for members located outside the workspace tree.
 
-Configuration resolution uses `rustup which cargo` from the consuming workspace and gives
-`cargo-config2` that absolute path. Its adjacent rustc handles configuration probes, including
-when a bare `RUSTC=rustc` would otherwise invoke a rustup proxy. Effective target and CPU settings
-include Cargo's file hierarchy and environment overrides. The resolver reads compiler settings;
-it does not establish what an arbitrary compiler wrapper does with them.
+Raw Platform/Firmware declarations remain separate from each Firmware's resolved CargoContext.
+The latter records invocation cwd, discovered owner, resolved artifact target, effective final
+and optional intermediate directories, and explicit directory overrides. Omitted output overrides
+leave inherited Cargo environment/configuration/defaults untouched. Relative directory inputs
+start beside polyfw.toml, independently of each other; absolute and parent paths are supported.
 
-Firmware Cargo commands additionally set `CARGO_TARGET_DIR` to the operating project's
-`target/firmware/<bsp>`. Host checks run from each owning workspace; when that workspace is also a
-registered BSP workspace, they reuse its isolated cache. Other workspaces retain their ordinary
-Cargo target-directory behavior. Building polyfw itself remains independent of these caches.
+Target-side commands explicitly pass the Platform target. CPU injection appends to the inherited
+target-specific environment flags; Cargo merges string/array settings and applies its native
+source precedence, including global flag suppression and matching cfg flags. Host commands do
+not inject Platform CPU and explicitly select host-tuple. Cargo's host alias resolves through
+that consuming Cargo's host identity; custom target JSON filenames determine artifact stems.
+
+## Platform consistency checking
+
+`cargo_config` is used only by enabled check-platform preflight before selected builds and target
+Clippy. Firmware overrides Platform, including false; the final default is true. It analyzes the
+same child environment after polyfw's CPU/directory overrides, with the explicit compilation
+target. Last explicit CPU mismatch, absent determinable CPU, response files or unsupported
+configuration sources produce actionable errors. See the [supported boundary](configuration.md#check-platform-consistency).
+
+The checker guards unsupported sources before invoking the pinned reader, preventing its hidden
+cfg subprocesses from bypassing the runner boundary. Disabled checking performs no configuration
+analysis or comparison. Native Cargo always executes with its own settings. Reporting uses declared
+Platform CPU and actual Cargo directory/artifact paths, without claiming an effective CPU.
+This contract concerns Cargo configuration; custom compiler/wrapper internals and existing ELF
+contents are outside it. Cached builds still receive the preflight without forcing compilation.
 
 ## Check planning
 
-`scope` resolves the selected firmware's local check graph from full Cargo metadata. It avoids a
-filesystem scan and uses canonical manifest paths as package identity, so same-named packages in
-different workspaces remain distinct.
+`scope` traverses selected firmware's full Cargo metadata rather than scanning directories.
+Canonical manifests identify packages, keeping identical package names in different owners distinct.
 
-1. Start from selected firmware package IDs. Traverse normal, build and dev edges across all
-   platforms and the workspace's resolved features.
-2. Exclude registry and Git sources. Select path packages whose canonical directories match
-   `config.local-dependencies`; keep traversing through excluded packages. Always select the
-   firmware itself.
-3. Seed host traversal in each reached package's own workspace to include its local test helpers
-   and their dev-dependencies.
-4. Normal dependencies preserve the current platform. Build/dev edges, proc-macros and their
-   dependencies switch to the host. A package reached in both roles receives both checks.
+1. Traverse normal, build and dev edges across Cargo's resolved platforms/features.
+2. Select reachable local path packages matching config.local-dependencies; always select firmware,
+   keep traversing excluded packages, and exclude registry/Git sources from explicit checks.
+3. Seed local dependencies' host traversal in their own owning context to include test helpers.
+4. Normal edges preserve compilation role; build/dev edges and proc macros switch to host.
+   A package reached in both roles receives both checks.
 
-This produces a review/check scope, not the exact compilation graph of one image. Workspace
-feature unification can make optional dependencies reachable; the planner does not enable every
-feature. Unrelated root packages remain outside the scope.
+Metadata caches retain execution contexts rather than only workspace roots. Ownership mappings
+come from metadata.workspace_root, never from the invocation directory. MCU scopes preserve
+compilation target/CPU, directory context and consistency policy. Host and formatting scopes
+deduplicate by their actual execution/directory context. Other-workspace dependencies use their
+own workspace root and native directories, even if another firmware registers that workspace.
 
-Commands turn that graph into grouped stages:
-
-| Stage | Grouping and Cargo selection |
+| Stage | Cargo selection |
 | --- | --- |
-| Formatting | Once per owning workspace; select packages by name |
-| MCU Clippy | Once per BSP; select runtime package IDs with `--lib --bins` |
-| Host Clippy | Once per owning workspace; select package IDs with `--lib --tests --target host-tuple` |
-| Host tests | Once per owning workspace; default package test targets and doctests with `--target host-tuple` |
+| Formatting | Package names, once per host execution context |
+| MCU Clippy | Runtime package IDs, --lib --bins, explicit Platform target |
+| Host Clippy | Host package IDs, --lib --tests --target host-tuple |
+| Host tests | Default package tests/doctests, --target host-tuple |
 
-Grouped checks use each workspace's defaults and unify features across selected packages.
-They do not repeat each package with a separate feature set. Runtime libraries therefore need to
-support both the MCU and host checks. `verify` shares one scope across formatting, lint and test
-stages and stops at the first failure. Only checks and detailed `info` resolve this graph.
+Grouped commands retain Cargo defaults and feature unification. Different toolchain/cwd contexts
+can format/check the same source more than once. This review scope is not the exact graph of a
+single image. verify shares the scope, executes format-check, lint, then tests, and stops on failure.
 
 ## Artifact identity
 
-A firmware image is identified by its BSP, package and resolved binary. Board IDs may share that
-image. The BSP determines the workspace and cache; its effective target, chosen profile directory
-and binary determine the ELF path.
+runner::firmware_elf_path is the single public-layout resolver for info, hardware and editor
+consumers: effective target-dir / resolved-target / profile-directory / binary. Windows host
+executables have the native .exe suffix. profile owns dev/test => debug, release/bench => release,
+and custom-profile names. Cargo's private build-dir layout is never inspected.
 
-`runner::firmware_elf_path` is the shared path function for information output, hardware commands
-and editor generation. Profile-directory mapping lives in `profile`; build arguments and lookup
-must keep the same mapping. No caller should reconstruct the path independently.
+Builds operate once per selected firmware. Compatible intermediates can share build-dir while
+separate target-dir values preserve independent final images. Shared public filenames can be
+replaced; no extra collision rejection or ELF-copy mechanism is introduced. Cargo fingerprints,
+not Platform identity alone, decide reuse.
 
-Builds operate once per board. Package cleaning uses the same isolated BSP cache and can affect
-multiple registered boards sharing a package; all-board cleaning runs once per BSP.
+Single-firmware clean delegates package cleanup with firmware and host targets using Cargo's
+default profile rules. All-firmware clean deduplicates directory contexts and delegates full
+cleanup; shared directories can include unregistered/manual outputs. No Platform isolation is
+inferred. Neither operation performs platform consistency checking.
 
 ## Selection and editor writes
 
-Saved selection is project-local TOML containing a board and optional explicit profile. Absence,
-malformed state and a stale board are distinct cases. Profile inheritance and one-time overrides
+Saved selection is project-local TOML containing a firmware and optional explicit profile. Absence,
+malformed state and a stale firmware are distinct cases. Profile inheritance and one-time overrides
 are resolved before orchestration; saving with no explicit profile clears the previous profile.
 
 A save may precede a build or hardware action. Its success is retained if the later action fails.

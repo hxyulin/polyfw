@@ -1,14 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::mem::DropGuard;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::Result;
-use crate::cargo_config;
 use crate::config_version;
 use crate::local_dependencies::LocalDependencies;
-use crate::model::{Metadata, Registry, SavedSelection, Selection};
+use crate::model::{CargoContext, Metadata, Platform, Registry, SavedSelection, Selection};
 use crate::profile::Profile;
 use crate::runner;
 use crate::vscode;
@@ -96,20 +95,24 @@ impl Context {
     }
 
     pub(crate) fn selection(&self, id: &str) -> Result<Selection> {
-        let board = self
+        let firmware =
+            self.registry.firmwares.get(id).ok_or_else(|| {
+                format!("unknown firmware: {id}; run polyfw info for valid names")
+            })?;
+        let platform = self
             .registry
-            .boards
-            .get(id)
-            .ok_or_else(|| format!("unknown board: {id}; run polyfw info for valid names"))?;
-        let bsp = self
-            .registry
-            .bsps
-            .get(&board.bsp)
-            .ok_or_else(|| format!("board {id} refers to unknown BSP {}", board.bsp))?;
+            .platforms
+            .get(&firmware.platform)
+            .ok_or_else(|| {
+                format!(
+                    "firmware {id} refers to unknown PLATFORM {}",
+                    firmware.platform
+                )
+            })?;
         Ok(Selection {
             id: id.to_owned(),
-            board: board.clone(),
-            bsp: bsp.clone(),
+            firmware: firmware.clone(),
+            platform: platform.clone(),
             profile: None,
         })
     }
@@ -117,12 +120,12 @@ impl Context {
     pub(crate) fn read_selection(&self) -> Result<Option<SavedSelection>> {
         let saved = self.read_saved_selection()?;
         if let Some(saved) = &saved {
-            self.selection(&saved.board).map_err(|_| {
+            self.selection(&saved.firmware).map_err(|_| {
                 format!(
-                    "saved board {} at {} is no longer registered;\n    \
-                     run `polyfw select [BOARD]` to replace it \
+                    "saved firmware {} at {} is no longer registered;\n    \
+                     run `polyfw select [FIRMWARE]` to replace it \
                      or `polyfw select --clear` to reset selection",
-                    saved.board,
+                    saved.firmware,
                     self.selection_path().display()
                 )
             })?;
@@ -137,19 +140,9 @@ impl Context {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(format!("{}: {error}", path.display()).into()),
         };
-        let saved = if self.registry.boards.contains_key(value.trim()) {
-            SavedSelection {
-                board: value.trim().to_owned(),
-                profile: None,
-            }
-        } else {
-            toml::from_str::<SavedSelection>(&value).map_err(|error| {
-                format!(
-                    "invalid saved selection at {}: {error}; run polyfw select --clear",
-                    path.display()
-                )
-            })?
-        };
+        let saved = toml::from_str::<SavedSelection>(&value).map_err(|error| {
+            format!("invalid saved selection at {}: {error}; run polyfw select FIRMWARE or polyfw select --clear", path.display())
+        })?;
         Ok(Some(saved))
     }
 
@@ -161,7 +154,7 @@ impl Context {
         let mut selection = self.selection(id)?;
         selection.profile = profile.cloned();
         let value = toml::to_string(&SavedSelection {
-            board: id.to_owned(),
+            firmware: id.to_owned(),
             profile: profile.cloned(),
         })?;
         let path = self.selection_path();
@@ -221,30 +214,75 @@ fn write_file(path: &Path, value: &[u8]) -> Result<()> {
 
 impl Registry {
     fn validate_structure(&self, root: &Path) -> Result<()> {
-        // Keep directly constructed registries subject to the same version contract.
         config_version::check(
             &self.config_version,
             &self.min_polyfw_version,
             &root.join(REGISTRY_FILE),
         )?;
         LocalDependencies::new(root, &self.config.local_dependencies)?;
-        if self.bsps.is_empty() {
-            return Err("registry has no BSPs".into());
+        if self.platforms.is_empty() {
+            return Err("registry has no platforms".into());
         }
-        if self.boards.is_empty() {
-            return Err("registry has no boards".into());
+        if self.firmwares.is_empty() {
+            return Err("registry has no firmwares".into());
         }
-        for name in self.bsps.keys().chain(self.boards.keys()) {
+        for name in self.platforms.keys().chain(self.firmwares.keys()) {
             if !valid_name(name) {
                 return Err(format!("invalid registry name: {name}").into());
             }
         }
-        for bsp in self.bsps.values() {
-            relative_path(root, &bsp.workspace, "BSP workspace")?;
+        for (id, platform) in &self.platforms {
+            for (field, value) in [
+                ("target", &platform.target),
+                ("cpu", &platform.cpu),
+                ("chip", &platform.chip),
+            ] {
+                if value.trim().is_empty() {
+                    return Err(format!("platform {id} has empty {field}").into());
+                }
+            }
+            if !platform
+                .cpu
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-_.+".contains(&byte))
+            {
+                return Err(format!("platform {id} has invalid CPU name: {}", platform.cpu).into());
+            }
+            validate_directories(
+                id,
+                [
+                    &platform.working_dir,
+                    &platform.build_dir,
+                    &platform.target_dir,
+                ],
+            )?;
         }
-        for (name, board) in &self.boards {
-            if !self.bsps.contains_key(&board.bsp) {
-                return Err(format!("board {name} refers to unknown BSP {}", board.bsp).into());
+        for (id, firmware) in &self.firmwares {
+            let platform = self.platforms.get(&firmware.platform).ok_or_else(|| {
+                format!(
+                    "firmware {id} refers to unknown platform {}",
+                    firmware.platform
+                )
+            })?;
+            validate_directories(
+                id,
+                [
+                    &firmware.working_dir,
+                    &firmware.build_dir,
+                    &firmware.target_dir,
+                ],
+            )?;
+            if firmware
+                .working_dir
+                .as_ref()
+                .or(platform.working_dir.as_ref())
+                .is_none()
+            {
+                return Err(format!(
+                    "firmware {id} needs working-dir on itself or platform {}",
+                    firmware.platform
+                )
+                .into());
             }
         }
         Ok(())
@@ -252,123 +290,126 @@ impl Registry {
 
     fn resolve_cargo(&mut self, root: &Path) -> Result<()> {
         let mut metadata = BTreeMap::new();
-        for (name, bsp) in &self.bsps {
-            let workspace = relative_path(root, &bsp.workspace, "BSP workspace")?;
-            let manifest = workspace.join("Cargo.toml");
-            if !manifest.is_file() {
+        for (id, firmware) in &mut self.firmwares {
+            let platform = &self.platforms[&firmware.platform];
+            let working_dir = canonical(
+                &root.join(
+                    firmware
+                        .working_dir
+                        .as_ref()
+                        .or(platform.working_dir.as_ref())
+                        .expect("validated working-dir"),
+                ),
+            )?;
+            if !working_dir.is_dir() {
                 return Err(format!(
-                    "bsp {name} has no workspace manifest: {}",
-                    manifest.display()
+                    "firmware {id} working-dir is not a directory: {}",
+                    working_dir.display()
                 )
                 .into());
             }
-            metadata.insert(name.clone(), cargo_metadata(&workspace, false)?);
-        }
-
-        let mut binaries = BTreeMap::new();
-        for (name, board) in &mut self.boards {
-            let bsp = self
-                .bsps
-                .get(&board.bsp)
-                .ok_or_else(|| format!("board {name} refers to unknown BSP {}", board.bsp))?;
-            let bsp_metadata = metadata
-                .get(&board.bsp)
-                .expect("metadata was loaded for every BSP");
-            let package = bsp_metadata
-                .workspace_package(&board.package)
-                .ok_or_else(|| {
-                    format!(
-                        "board {name} package is not in BSP {}: {}",
-                        board.bsp, board.package
-                    )
-                })?;
-            let workspace = canonical(&root.join(&bsp.workspace))?;
-            let metadata_workspace = canonical(Path::new(&bsp_metadata.workspace_root))?;
-            if metadata_workspace != workspace {
-                return Err(format!(
-                    "board {name} package is outside BSP workspace {}",
-                    bsp.workspace
-                )
-                .into());
+            let build_dir_override = firmware
+                .build_dir
+                .as_ref()
+                .or(platform.build_dir.as_ref())
+                .map(|value| absolute_directory(root, value));
+            let target_dir_override = firmware
+                .target_dir
+                .as_ref()
+                .or(platform.target_dir.as_ref())
+                .map(|value| absolute_directory(root, value));
+            let mut cargo = CargoContext {
+                target: runner::resolve_target(
+                    &working_dir,
+                    &platform.target,
+                    build_dir_override.is_some(),
+                )?,
+                working_dir,
+                target_dir_override,
+                build_dir_override,
+                ..CargoContext::default()
+            };
+            let key = (cargo.clone(), platform.target.clone(), platform.cpu.clone());
+            if !metadata.contains_key(&key) {
+                metadata.insert(
+                    key.clone(),
+                    cargo_metadata_for(&cargo, Some(platform), false)?,
+                );
             }
+            let data = &metadata[&key];
+            let package = data.workspace_package(&firmware.package).ok_or_else(|| {
+                format!(
+                    "firmware {id} package is not a member of the Cargo workspace: {}",
+                    firmware.package
+                )
+            })?;
             if !package
                 .targets
                 .iter()
                 .any(|target| target.kind.iter().any(|kind| kind == "lib"))
             {
                 return Err(format!(
-                    "board {name} package {} has no library target",
-                    board.package
+                    "firmware {id} package {} has no library target",
+                    firmware.package
                 )
                 .into());
             }
-            let targets = package
+            let bins = package
                 .targets
                 .iter()
                 .filter(|target| target.kind.iter().any(|kind| kind == "bin"))
                 .map(|target| target.name.as_str())
                 .collect::<Vec<_>>();
-            let bin = match board.bin.as_deref() {
-                Some(bin) if targets.contains(&bin) => bin,
-                Some(bin) => {
-                    return Err(format!(
-                        "board {name} package {} has no binary target named {bin}",
-                        board.package
-                    )
-                    .into());
-                }
-                None => match targets.as_slice() {
-                    [bin] => *bin,
-                    [] => {
-                        return Err(format!(
-                            "board {name} package {} has no binary targets",
-                            board.package
-                        )
-                        .into());
-                    }
-                    bins => {
-                        return Err(format!(
-                            "board {name} package {} has multiple binary targets: {}; \
-                             set bin in {REGISTRY_FILE}",
-                            board.package,
-                            bins.join(", ")
-                        )
-                        .into());
-                    }
+            firmware.resolved_bin = match firmware.bin.as_deref() {
+                Some(bin) if bins.contains(&bin) => bin.to_owned(),
+                Some(bin) => return Err(format!("firmware {id} package {} has no binary target named {bin}", firmware.package).into()),
+                None => match bins.as_slice() {
+                    [bin] => (*bin).to_owned(),
+                    [] => return Err(format!("firmware {id} package {} has no binary targets", firmware.package).into()),
+                    _ => return Err(format!("firmware {id} package {} has multiple binary targets: {}; set bin in {REGISTRY_FILE}", firmware.package, bins.join(", ")).into()),
                 },
             };
-            if let Some((previous_board, previous_package)) = binaries.insert(
-                (board.bsp.as_str(), bin),
-                (name.as_str(), board.package.as_str()),
-            ) && previous_package != board.package.as_str()
-            {
-                return Err(format!(
-                    "boards {previous_board} ({previous_package}) and {name} ({}) use binary {bin} \
-                     in BSP {}; their ELF paths would collide",
-                    board.package, board.bsp
-                )
-                .into());
-            }
-            board.resolved_bin = bin.to_owned();
-        }
-        for (name, bsp) in &mut self.bsps {
-            let workspace = root.join(&bsp.workspace);
-            let config = cargo_config::resolve(&workspace)
-                .map_err(|error| format!("bsp {name}: {error}"))?;
-            bsp.target = config.target;
-            bsp.cpu = config.cpu;
+            cargo.workspace = canonical(Path::new(&data.workspace_root))?;
+            cargo.target_dir = data.target_directory.clone();
+            cargo.build_dir = data
+                .build_directory
+                .clone()
+                .or_else(|| cargo.build_dir_override.clone());
+            firmware.cargo = cargo;
         }
         Ok(())
     }
 }
 
-pub(crate) fn cargo_metadata(workspace: &Path, dependencies: bool) -> Result<Metadata> {
-    let mut command = runner::workspace_cargo(workspace);
-    command
-        .arg("metadata")
-        .arg("--locked")
-        .arg("--format-version")
-        .arg("1");
+fn validate_directories(id: &str, values: [&Option<String>; 3]) -> Result<()> {
+    for value in values.into_iter().flatten() {
+        if value.trim().is_empty() || value.contains('\0') {
+            return Err(format!("{id} has an empty or invalid directory value").into());
+        }
+    }
+    Ok(())
+}
+
+fn absolute_directory(root: &Path, value: &str) -> PathBuf {
+    let path = root.join(value);
+    // Preserve native filesystem semantics for parent components following symlinks.
+    path.canonicalize().unwrap_or(path)
+}
+
+pub(crate) fn cargo_metadata_for(
+    context: &CargoContext,
+    platform: Option<&Platform>,
+    dependencies: bool,
+) -> Result<Metadata> {
+    let mut command = match platform {
+        Some(platform) => runner::target_cargo(context, platform),
+        None => runner::cargo_command(context),
+    };
+    command.args(["metadata", "--locked", "--format-version", "1"]);
+    if let Some(platform) = platform {
+        // metadata has no --target switch; align its native target default with builds.
+        command.env("CARGO_BUILD_TARGET", &platform.target);
+    }
     if !dependencies {
         command.arg("--no-deps");
     }
@@ -376,27 +417,12 @@ pub(crate) fn cargo_metadata(workspace: &Path, dependencies: bool) -> Result<Met
     if !output.status.success() {
         return Err(format!(
             "cargo metadata failed for {}: {}",
-            workspace.display(),
+            context.working_dir.display(),
             String::from_utf8_lossy(&output.stderr).trim()
         )
         .into());
     }
-    Ok(serde_json::from_slice::<Metadata>(&output.stdout)?)
-}
-
-fn relative_path(root: &Path, value: &str, label: &str) -> Result<PathBuf> {
-    let path = Path::new(value);
-    if path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
-    {
-        return Err(format!("{label} must be a relative path inside the project: {value}").into());
-    }
-    Ok(root.join(path))
+    Ok(serde_json::from_slice(&output.stdout)?)
 }
 
 fn canonical(path: &Path) -> Result<PathBuf> {
@@ -414,18 +440,39 @@ fn valid_name(name: &str) -> bool {
         && !name.contains("--")
 }
 
-pub(crate) fn unique_by_bsp(selections: &[Selection]) -> Vec<&Selection> {
-    let mut seen = BTreeSet::new();
-    selections
-        .iter()
-        .filter(|selection| seen.insert(selection.board.bsp.as_str()))
-        .collect()
+pub(crate) fn same_context(left: &Selection, right: &Selection) -> bool {
+    left.firmware.cargo == right.firmware.cargo
+        && left.platform.target == right.platform.target
+        && left.platform.cpu == right.platform.cpu
+        && left
+            .firmware
+            .check_platform
+            .or(left.platform.check_platform)
+            .unwrap_or(true)
+            == right
+                .firmware
+                .check_platform
+                .or(right.platform.check_platform)
+                .unwrap_or(true)
+}
+
+pub(crate) fn unique_contexts(selections: &[Selection]) -> Vec<&Selection> {
+    let mut unique: Vec<&Selection> = Vec::new();
+    for selection in selections {
+        if !unique
+            .iter()
+            .any(|previous| same_context(previous, selection))
+        {
+            unique.push(selection);
+        }
+    }
+    unique
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Board, Bsp};
+    use crate::model::{Firmware, Platform};
 
     #[test]
     fn the_nearest_configuration_defines_the_project_root() {
@@ -494,21 +541,21 @@ mod tests {
     fn loading_the_registry_rejects_a_registered_firmware_without_a_library() {
         let root = std::env::temp_dir().join(format!("polyfw-no-lib-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         configure(&workspace);
         fs::create_dir_all(workspace.join("src")).unwrap();
         fs::write(
             workspace.join("Cargo.toml"),
-            "[package]\nname = \"test-board\"\nversion = \"0.1.0\"\n[workspace]\n",
+            "[package]\nname = \"test-firmware\"\nversion = \"0.1.0\"\n[workspace]\n",
         )
         .unwrap();
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(
             root.join(REGISTRY_FILE),
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.test]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/test\"\nworking-dir = \"platform/test\"\n\
              chip = \"test-chip\"\n\
-             [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
-             package = \"test-board\"\n",
+             [firmwares.test-firmware]\ndescription = \"test firmware\"\nplatform = \"test\"\n\
+             package = \"test-firmware\"\n",
         )
         .unwrap();
 
@@ -520,7 +567,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("test-board has no library target"),
+                .contains("test-firmware has no library target"),
             "{error}"
         );
     }
@@ -529,27 +576,31 @@ mod tests {
     fn firmware_binaries_use_the_only_target_or_an_explicit_name() {
         let root = std::env::temp_dir().join(format!("polyfw-bin-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         configure(&workspace);
         fs::create_dir_all(workspace.join("src/bin")).unwrap();
         fs::write(
             workspace.join("Cargo.toml"),
-            "[package]\nname = \"test-board\"\nversion = \"0.1.0\"\n[workspace]\n",
+            "[package]\nname = \"test-firmware\"\nversion = \"0.1.0\"\n[workspace]\n",
         )
         .unwrap();
         fs::write(workspace.join("src/lib.rs"), "#![forbid(unsafe_code)]\n").unwrap();
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
-        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.test]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/test\"\nworking-dir = \"platform/test\"\n\
              chip = \"test-chip\"\n\
-             [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
-             package = \"test-board\"\n";
+             [firmwares.test-firmware]\ndescription = \"test firmware\"\nplatform = \"test\"\n\
+             package = \"test-firmware\"\n";
         fs::write(root.join(REGISTRY_FILE), source).unwrap();
         let context = Context::load(root.clone()).unwrap();
         assert_eq!(
-            context.selection("test-board").unwrap().board.resolved_bin,
-            "test-board"
+            context
+                .selection("test-firmware")
+                .unwrap()
+                .firmware
+                .resolved_bin,
+            "test-firmware"
         );
-        assert!(context.registry.boards["test-board"].bin.is_none());
+        assert!(context.registry.firmwares["test-firmware"].bin.is_none());
 
         fs::write(workspace.join("src/bin/robot-image.rs"), "fn main() {}\n").unwrap();
         fs::write(
@@ -559,7 +610,11 @@ mod tests {
         .unwrap();
         let context = Context::load(root.clone()).unwrap();
         assert_eq!(
-            context.selection("test-board").unwrap().board.resolved_bin,
+            context
+                .selection("test-firmware")
+                .unwrap()
+                .firmware
+                .resolved_bin,
             "robot-image"
         );
 
@@ -575,22 +630,22 @@ mod tests {
         fs::write(root.join(REGISTRY_FILE), source).unwrap();
         fs::remove_file(workspace.join("src/main.rs")).unwrap();
         let context = Context::load(root.clone()).unwrap();
-        let selection = context.selection("test-board").unwrap();
-        assert!(selection.board.bin.is_none());
-        assert_eq!(selection.board.resolved_bin, "robot-image");
-        let elf = crate::runner::firmware_elf_path(&root, &selection);
+        let selection = context.selection("test-firmware").unwrap();
+        assert!(selection.firmware.bin.is_none());
+        assert_eq!(selection.firmware.resolved_bin, "robot-image");
+        let elf = crate::runner::firmware_elf_path(&selection);
         assert_eq!(
             elf,
-            root.join("target/firmware/test/test-target/debug/robot-image")
+            root.join("target/firmware/test/thumbv7em-none-eabihf/debug/robot-image")
         );
-        context.save_selection("test-board", None).unwrap();
+        context.save_selection("test-firmware", None).unwrap();
         let launch: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(root.join(vscode::LAUNCH_FILE)).unwrap())
                 .unwrap();
         for configuration in launch["configurations"].as_array().unwrap() {
             assert_eq!(
                 configuration["coreConfigs"][0]["programBinary"],
-                "${workspaceFolder}/target/firmware/test/test-target/debug/robot-image"
+                elf.to_string_lossy().replace('\\', "/")
             );
         }
 
@@ -608,28 +663,28 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("polyfw-ambiguous-bin-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         configure(&workspace);
         fs::create_dir_all(workspace.join("src/bin")).unwrap();
         fs::write(
             workspace.join("Cargo.toml"),
-            "[package]\nname = \"test-board\"\nversion = \"0.1.0\"\n[workspace]\n",
+            "[package]\nname = \"test-firmware\"\nversion = \"0.1.0\"\n[workspace]\n",
         )
         .unwrap();
         fs::write(workspace.join("src/lib.rs"), "#![forbid(unsafe_code)]\n").unwrap();
         fs::write(workspace.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(workspace.join("src/bin/robot-image.rs"), "fn main() {}\n").unwrap();
-        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.test]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/test\"\nworking-dir = \"platform/test\"\n\
              chip = \"test-chip\"\n\
-             [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
-             package = \"test-board\"\n";
+             [firmwares.test-firmware]\ndescription = \"test firmware\"\nplatform = \"test\"\n\
+             package = \"test-firmware\"\n";
         fs::write(root.join(REGISTRY_FILE), source).unwrap();
         let error = Context::load(root.clone())
             .err()
             .expect("multiple binaries must require an explicit bin")
             .to_string();
         for expected in [
-            "test-board",
+            "test-firmware",
             "robot-image",
             "multiple binary targets",
             "set bin",
@@ -639,7 +694,7 @@ mod tests {
 
         fs::write(
             root.join(REGISTRY_FILE),
-            format!("{source}bin = \"test-board\"\n"),
+            format!("{source}bin = \"test-firmware\"\n"),
         )
         .unwrap();
         Context::load(root.clone()).unwrap();
@@ -647,11 +702,11 @@ mod tests {
     }
 
     #[test]
-    fn binary_names_are_unique_across_packages_within_each_bsp() {
+    fn same_named_binaries_are_allowed_to_use_cargos_native_output_handling() {
         let root =
             std::env::temp_dir().join(format!("polyfw-bin-collision-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         configure(&workspace);
         fs::create_dir_all(&workspace).unwrap();
         fs::write(
@@ -677,15 +732,15 @@ mod tests {
             )
             .unwrap();
         }
-        let source = "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.first-family]\nworkspace = \"bsp/test\"\n\
+        let source = "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.first-family]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/first-family\"\nworking-dir = \"platform/test\"\n\
              chip = \"test\"\n\
-             [bsps.second-family]\nworkspace = \"bsp/test\"\n\
+             [platforms.second-family]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/second-family\"\nworking-dir = \"platform/test\"\n\
              chip = \"test\"\n\
-             [boards.one]\ndescription = \"first board\"\nbsp = \"first-family\"\n\
+             [firmwares.one]\ndescription = \"first firmware\"\nplatform = \"first-family\"\n\
              package = \"firmware-a\"\nbin = \"shared-image\"\n\
-             [boards.alias]\ndescription = \"same image\"\nbsp = \"first-family\"\n\
+             [firmwares.alias]\ndescription = \"same image\"\nplatform = \"first-family\"\n\
              package = \"firmware-a\"\nbin = \"shared-image\"\n\
-             [boards.two]\ndescription = \"other package\"\nbsp = \"second-family\"\n\
+             [firmwares.two]\ndescription = \"other package\"\nplatform = \"second-family\"\n\
              package = \"firmware-b\"\nbin = \"shared-image\"\n";
         for source in [
             source.to_owned(),
@@ -693,40 +748,32 @@ mod tests {
         ] {
             fs::write(root.join(REGISTRY_FILE), &source).unwrap();
             let context = Context::load(root.clone()).unwrap();
-            assert_eq!(context.registry.boards.len(), 3);
-            for board in context.registry.boards.keys() {
+            assert_eq!(context.registry.firmwares.len(), 3);
+            for firmware in context.registry.firmwares.keys() {
                 assert_eq!(
-                    context.selection(board).unwrap().board.resolved_bin,
+                    context.selection(firmware).unwrap().firmware.resolved_bin,
                     "shared-image"
                 );
             }
 
             fs::write(
                 root.join(REGISTRY_FILE),
-                source.replace("bsp = \"second-family\"", "bsp = \"first-family\""),
+                source.replace(
+                    "platform = \"second-family\"",
+                    "platform = \"first-family\"",
+                ),
             )
             .unwrap();
-            let error = Context::load(root.clone()).err().unwrap().to_string();
-            for expected in [
-                "firmware-a",
-                "firmware-b",
-                "shared-image",
-                "first-family",
-                "two",
-            ] {
-                assert!(error.contains(expected), "{error}");
-            }
-            assert!(error.contains("one") || error.contains("alias"), "{error}");
-            assert!(error.contains("ELF paths would collide"), "{error}");
+            assert!(Context::load(root.clone()).is_ok());
         }
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn a_board_can_move_within_its_bsp_but_cannot_use_another_workspace() {
+    fn a_firmware_can_move_within_its_platform_but_cannot_use_another_workspace() {
         let root = std::env::temp_dir().join(format!("polyfw-package-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let workspace = root.join("bsp/test");
+        let workspace = root.join("platform/test");
         configure(&workspace);
         fs::create_dir_all(workspace.join("firmware")).unwrap();
         fs::write(
@@ -736,7 +783,7 @@ mod tests {
         .unwrap();
         fs::write(
             workspace.join("firmware/Cargo.toml"),
-            "[package]\nname = \"test-board\"\nversion = \"0.1.0\"\n[lib]\npath = \"lib.rs\"\n",
+            "[package]\nname = \"test-firmware\"\nversion = \"0.1.0\"\n[lib]\npath = \"lib.rs\"\n",
         )
         .unwrap();
         fs::write(
@@ -748,10 +795,10 @@ mod tests {
         fs::write(workspace.join("firmware/src/main.rs"), "fn main() {}\n").unwrap();
 
         let mut registry: Registry = toml::from_str(
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[bsps.test]\nworkspace = \"bsp/test\"\n\
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[platforms.test]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/test\"\nworking-dir = \"platform/test\"\n\
              chip = \"test-chip\"\n\
-             [boards.test-board]\ndescription = \"test board\"\nbsp = \"test\"\n\
-             package = \"test-board\"\n",
+             [firmwares.test-firmware]\ndescription = \"test firmware\"\nplatform = \"test\"\n\
+             package = \"test-firmware\"\n",
         )
         .unwrap();
         registry.resolve_cargo(&root).unwrap();
@@ -764,22 +811,26 @@ mod tests {
         .unwrap();
         registry.resolve_cargo(&root).unwrap();
 
-        let other = root.join("bsp/other");
+        let other = root.join("platform/other");
         fs::create_dir_all(&other).unwrap();
         fs::write(
             other.join("Cargo.toml"),
-            "[package]\nname = \"other-board\"\nversion = \"0.1.0\"\n\
+            "[package]\nname = \"other-firmware\"\nversion = \"0.1.0\"\n\
              [workspace]\n[lib]\npath = \"lib.rs\"\n",
         )
         .unwrap();
         fs::write(other.join("lib.rs"), "#![forbid(unsafe_code)]\n").unwrap();
-        let mut bsp = registry.bsps["test"].clone();
-        bsp.workspace = "bsp/other".into();
-        registry.bsps.insert("other".into(), bsp);
-        registry.boards.get_mut("test-board").unwrap().bsp = "other".into();
+        let mut platform = registry.platforms["test"].clone();
+        platform.working_dir = Some("platform/other".into());
+        registry.platforms.insert("other".into(), platform);
+        registry
+            .firmwares
+            .get_mut("test-firmware")
+            .unwrap()
+            .platform = "other".into();
         let error = registry.resolve_cargo(&root).unwrap_err().to_string();
         assert!(
-            error.contains("package is not in BSP other: test-board"),
+            error.contains("package is not a member of the Cargo workspace: test-firmware"),
             "{error}"
         );
 
@@ -796,14 +847,14 @@ mod tests {
     }
 
     #[test]
-    fn compiler_settings_are_rejected_in_the_registry_instead_of_ignored() {
+    fn compiler_overrides_are_rejected_on_firmware_entries() {
         for setting in ["target = \"thumbv7em-none-eabihf\"", "cpu = \"cortex-m7\""] {
-            assert!(
-                toml::from_str::<Registry>(&format!(
-                    "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nboards = {{}}\n[bsps.test]\nworkspace = \".\"\nchip = \"test\"\n{setting}\n"
-                ))
-                .is_err()
+            let source = format!(
+                "{}[platforms.test]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\nchip = \"test\"\nworking-dir = \".\"\n[firmwares.demo]\ndescription = \"Demo\"\nplatform = \"test\"\npackage = \"demo\"\n{setting}\n",
+                crate::config_version::TEST_HEADER
             );
+            let error = toml::from_str::<Registry>(&source).unwrap_err();
+            assert!(error.to_string().contains("unknown field"), "{error}");
         }
     }
 
@@ -820,24 +871,24 @@ mod tests {
     #[test]
     fn dependency_patterns_default_to_the_project_and_invalid_patterns_fail_before_cargo() {
         let registry: Registry = toml::from_str(
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n",
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {}\nfirmwares = {}\n",
         )
         .unwrap();
         assert_eq!(registry.config.local_dependencies, ["./**"]);
         let registry: Registry =
-            toml::from_str("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n").unwrap();
+            toml::from_str("config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {}\nfirmwares = {}\n[config]\nlocal-dependencies = []\n").unwrap();
         assert!(registry.config.local_dependencies.is_empty());
         for value in ["42", "\"shared/**\"", "[42]"] {
             assert!(
                 toml::from_str::<Registry>(&format!(
-                    "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = {value}\n"
+                    "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {{}}\nfirmwares = {{}}\n[config]\nlocal-dependencies = {value}\n"
                 ))
                 .is_err()
             );
         }
         for pattern in ["[", "shared/**suffix", "*/../shared"] {
             let registry: Registry = toml::from_str(&format!(
-                "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n[config]\nlocal-dependencies = [{pattern:?}]\n"
+                "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {{}}\nfirmwares = {{}}\n[config]\nlocal-dependencies = [{pattern:?}]\n"
             ))
             .unwrap();
             let error = registry
@@ -861,12 +912,12 @@ mod tests {
             "[config.vscode]\nenabled = true\n",
         ] {
             let registry: Registry =
-                toml::from_str(&format!("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n{config}")).unwrap();
+                toml::from_str(&format!("config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {{}}\nfirmwares = {{}}\n{config}")).unwrap();
             assert_eq!(registry.config.local_dependencies, ["./**"]);
             assert!(registry.config.vscode.enabled);
         }
         let registry: Registry = toml::from_str(
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {}\nboards = {}\n[config]\nlocal-dependencies = []\n\
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {}\nfirmwares = {}\n[config]\nlocal-dependencies = []\n\
              [config.vscode]\nenabled = false\n",
         )
         .unwrap();
@@ -884,7 +935,7 @@ mod tests {
             "[config.vscode]\nenable = false\n",
         ] {
             assert!(
-                toml::from_str::<Registry>(&format!("config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\nbsps = {{}}\nboards = {{}}\n{config}"))
+                toml::from_str::<Registry>(&format!("config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\nplatforms = {{}}\nfirmwares = {{}}\n{config}"))
                     .is_err(),
                 "{config}"
             );
@@ -924,30 +975,35 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_bsp_work_is_removed_for_all_boards() {
-        let bsp = Bsp {
-            workspace: "bsp/dm-mc02".into(),
+    fn duplicate_platform_work_is_removed_for_all_firmwares() {
+        let platform = Platform {
+            working_dir: Some("platform/dm-mc02".into()),
             target: "thumbv7em-none-eabihf".into(),
-            cpu: Some("cortex-m7".into()),
+            cpu: "cortex-m7".into(),
             chip: "STM32H723VGTx".into(),
+            ..Platform::default()
         };
-        let board = |id: &str| Selection {
+        let firmware = |id: &str| Selection {
             id: id.into(),
             profile: None,
-            board: Board {
+            firmware: Firmware {
                 description: id.into(),
-                bsp: "dm-mc02".into(),
+                platform: "dm-mc02".into(),
                 package: id.into(),
                 bin: None,
                 resolved_bin: id.into(),
+                ..Firmware::default()
             },
-            bsp: bsp.clone(),
+            platform: platform.clone(),
         };
-        assert_eq!(unique_by_bsp(&[board("one"), board("two")]).len(), 1);
+        assert_eq!(
+            unique_contexts(&[firmware("one"), firmware("two")]).len(),
+            1
+        );
     }
 
     #[test]
-    fn saving_a_valid_board_writes_the_selection_file_and_rejects_unknown_boards() {
+    fn saving_a_valid_firmware_writes_the_selection_file_and_rejects_unknown_firmwares() {
         let root = std::env::temp_dir().join(format!("polyfw-selection-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
@@ -955,26 +1011,29 @@ mod tests {
         let context = Context {
             root: root.clone(),
             registry: Registry {
-                config_version: "0.1.0".into(),
-                min_polyfw_version: "0.1.0".into(),
+                config_version: crate::config_version::CLI_VERSION.into(),
+                min_polyfw_version: crate::config_version::CLI_VERSION.into(),
                 config: crate::model::Config::default(),
-                bsps: BTreeMap::from([(
-                    "test-bsp".into(),
-                    Bsp {
-                        workspace: "bsp/test".into(),
+                platforms: BTreeMap::from([(
+                    "test-platform".into(),
+                    Platform {
+                        working_dir: Some("platform/test".into()),
                         target: "thumbv7em-none-eabihf".into(),
-                        cpu: Some("cortex-m7".into()),
+                        cpu: "cortex-m7".into(),
                         chip: "test-chip".into(),
+                        ..Platform::default()
                     },
                 )]),
-                boards: BTreeMap::from([(
-                    "test-board".into(),
-                    Board {
-                        description: "test board".into(),
-                        bsp: "test-bsp".into(),
-                        package: "test-board".into(),
+                firmwares: BTreeMap::from([(
+                    "test-firmware".into(),
+                    Firmware {
+                        description: "test firmware".into(),
+                        platform: "test-platform".into(),
+                        package: "test-firmware".into(),
                         bin: None,
-                        resolved_bin: "test-board".into(),
+                        resolved_bin: "test-firmware".into(),
+                        cargo: crate::model::CargoContext::fixture(&root, "test-platform"),
+                        ..Firmware::default()
                     },
                 )]),
             },
@@ -982,28 +1041,28 @@ mod tests {
 
         let profile = "release".parse().unwrap();
         context
-            .save_selection("test-board", Some(&profile))
+            .save_selection("test-firmware", Some(&profile))
             .unwrap();
         let saved = context.read_selection().unwrap().unwrap();
-        assert_eq!(saved.board, "test-board");
+        assert_eq!(saved.firmware, "test-firmware");
         assert_eq!(saved.profile.as_ref(), Some(&profile));
         assert!(
             context
-                .save_selection("missing-board", Some(&profile))
+                .save_selection("missing-firmware", Some(&profile))
                 .is_err()
         );
         assert_eq!(
-            context.read_selection().unwrap().unwrap().board,
-            "test-board"
+            context.read_selection().unwrap().unwrap().firmware,
+            "test-firmware"
         );
 
-        fs::write(context.selection_path(), "test-board\n").unwrap();
-        assert!(context.read_selection().unwrap().unwrap().profile.is_none());
-        fs::write(context.selection_path(), "board = \"test-board\"\n").unwrap();
+        fs::write(context.selection_path(), "test-firmware\n").unwrap();
+        assert!(context.read_selection().is_err());
+        fs::write(context.selection_path(), "firmware = \"test-firmware\"\n").unwrap();
         assert!(context.read_selection().unwrap().unwrap().profile.is_none());
         fs::write(
             context.selection_path(),
-            "board = \"test-board\"\nprofile = \"dev\"\n",
+            "firmware = \"test-firmware\"\nprofile = \"dev\"\n",
         )
         .unwrap();
         assert_eq!(
@@ -1016,15 +1075,15 @@ mod tests {
                 .map(Profile::name),
             Some("dev")
         );
-        context.save_selection("test-board", None).unwrap();
+        context.save_selection("test-firmware", None).unwrap();
         assert_eq!(
             fs::read_to_string(context.selection_path()).unwrap(),
-            "board = \"test-board\"\n"
+            "firmware = \"test-firmware\"\n"
         );
         assert!(context.read_selection().unwrap().unwrap().profile.is_none());
         fs::write(
             context.selection_path(),
-            "board = \"test-board\"\nprofile = \"../release\"\n",
+            "firmware = \"test-firmware\"\nprofile = \"../release\"\n",
         )
         .unwrap();
         assert!(context.read_selection().is_err());

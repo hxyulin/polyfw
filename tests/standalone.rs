@@ -247,22 +247,22 @@ fn configuration_versions_are_checked_before_tools_state_and_unknown_fields() {
         ),
         (
             "missing-minimum",
-            "config-version = \"0.1.0\"\n",
+            "config-version = \"0.2.0\"\n",
             "missing required top-level min-polyfw-version",
         ),
         (
             "wrong-version-type",
-            "config-version = 1\nmin-polyfw-version = \"0.1.0\"\n",
+            "config-version = 1\nmin-polyfw-version = \"0.2.0\"\n",
             "config-version must be a string",
         ),
         (
             "invalid-version",
-            "config-version = \"0.1\"\nmin-polyfw-version = \"0.1.0\"\n",
+            "config-version = \"0.1\"\nmin-polyfw-version = \"0.2.0\"\n",
             "not a full SemVer",
         ),
         (
             "inconsistent-versions",
-            "config-version = \"0.1.0\"\nmin-polyfw-version = \"999.0.0\"\n",
+            "config-version = \"0.2.0\"\nmin-polyfw-version = \"999.0.0\"\n",
             "exceeds config-version",
         ),
         (
@@ -302,9 +302,9 @@ fn configuration_versions_are_checked_before_tools_state_and_unknown_fields() {
         for args in [
             vec!["info", "--json"],
             vec!["select", "--clear"],
-            vec!["reset", "board"],
-            vec!["reset", "board", "--select"],
-            vec!["build", "--select", "board"],
+            vec!["reset", "firmware"],
+            vec!["reset", "firmware", "--select"],
+            vec!["build", "--select", "firmware"],
         ] {
             let output = fixture.command().args(args).output().unwrap();
             assert!(!output.status.success());
@@ -393,7 +393,11 @@ fn resetting_needs_no_cargo_unless_saving_an_enabled_debug_configuration() {
         let fixture = Fixture::new(&format!("reset-{enabled}"));
         fixture.project(enabled);
         fixture.probe();
-        let output = fixture.command().args(["reset", "board"]).output().unwrap();
+        let output = fixture
+            .command()
+            .args(["reset", "firmware"])
+            .output()
+            .unwrap();
         succeeded(&output);
         assert_eq!(
             String::from_utf8(output.stdout).unwrap(),
@@ -403,7 +407,7 @@ fn resetting_needs_no_cargo_unless_saving_an_enabled_debug_configuration() {
 
         let output = fixture
             .command()
-            .args(["reset", "board", "--select"])
+            .args(["reset", "firmware", "--select"])
             .output()
             .unwrap();
         if enabled {
@@ -413,7 +417,7 @@ fn resetting_needs_no_cargo_unless_saving_an_enabled_debug_configuration() {
             succeeded(&output);
             assert_eq!(
                 fs::read_to_string(fixture.root.join(".polyfw-state/selected")).unwrap(),
-                "board = \"board\"\n"
+                "firmware = \"firmware\"\n"
             );
         }
         assert!(!fixture.root.join(".vscode/launch.json").exists());
@@ -450,9 +454,9 @@ impl Fixture {
         fs::write(
             self.root.join("polyfw.toml"),
             format!(
-                "config-version = \"0.1.0\"\nmin-polyfw-version = \"0.1.0\"\n[config.vscode]\nenabled = {vscode}\n\
-                 [bsps.model]\nworkspace = \"missing\"\nchip = \"test-chip\"\n\
-                 [boards.board]\ndescription = \"Fixture\"\nbsp = \"model\"\n\
+                "config-version = \"0.2.0\"\nmin-polyfw-version = \"0.2.0\"\n[config.vscode]\nenabled = {vscode}\n\
+                 [platforms.model]\ntarget = \"thumbv7em-none-eabihf\"\ncpu = \"cortex-m7\"\ntarget-dir = \"target/firmware/model\"\nworking-dir = \"missing\"\nchip = \"test-chip\"\n\
+                 [firmwares.firmware]\ndescription = \"Fixture\"\nplatform = \"model\"\n\
                  package = \"application\"\n"
             ),
         )

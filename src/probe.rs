@@ -69,7 +69,7 @@ fn command(
         .current_dir(root)
         .arg(action.name())
         .arg("--chip")
-        .arg(&selection.bsp.chip);
+        .arg(&selection.platform.chip);
     if let Some(probe) = &options.probe {
         command.arg("--probe").arg(probe);
     }
@@ -81,16 +81,16 @@ fn command(
     }
     match action {
         Action::Run { monitor } => {
-            command.arg(existing_elf(root, selection)?).arg("--verify");
+            command.arg(existing_elf(selection)?).arg("--verify");
             add_monitor(&mut command, monitor);
         }
         Action::Flash => {
             command
-                .arg(existing_elf(root, selection)?)
+                .arg(existing_elf(selection)?)
                 .args(["--verify", "--reset"]);
         }
         Action::Attach { monitor } => {
-            command.arg(existing_elf(root, selection)?);
+            command.arg(existing_elf(selection)?);
             add_monitor(&mut command, monitor);
         }
         Action::Reset => {}
@@ -98,8 +98,8 @@ fn command(
     Ok(command)
 }
 
-fn existing_elf(root: &Path, selection: &Selection) -> Result<PathBuf> {
-    let path = runner::firmware_elf_path(root, selection);
+fn existing_elf(selection: &Selection) -> Result<PathBuf> {
+    let path = runner::firmware_elf_path(selection);
     if !path.is_file() {
         let profile = selection
             .profile
@@ -151,7 +151,7 @@ mod tests {
 
     use super::*;
     use crate::cli::RttChannelMode;
-    use crate::model::{Board, Bsp};
+    use crate::model::{Firmware, Platform};
 
     #[test]
     fn only_a_missing_probe_command_reports_the_installation_link() {
@@ -279,14 +279,14 @@ mod tests {
                 let error = fixture.command(action, &ProbeArgs::default()).unwrap_err();
                 let expected_path = fixture
                     .root
-                    .join("target/firmware/test-bsp/thumbv7em-none-eabihf")
+                    .join("target/firmware/test-platform/thumbv7em-none-eabihf")
                     .join(directory)
                     .join("robot-image");
                 assert_eq!(
                     error.to_string(),
                     format!(
                         "ELF not found: {}; build it with polyfw build \
-                         test-board{suffix}",
+                         test-firmware{suffix}",
                         expected_path.display()
                     )
                 );
@@ -311,7 +311,7 @@ mod tests {
                 OsStr::new("test-chip")
             ]
         );
-        assert!(!fixture.root.join("bsp").exists());
+        assert!(!fixture.root.join("platform").exists());
         assert!(!fixture.root.join("target").exists());
     }
 
@@ -328,30 +328,34 @@ mod tests {
             ));
             let _ = fs::remove_dir_all(&root);
             fs::create_dir_all(&root).unwrap();
+            let root = root.canonicalize().unwrap();
             Self {
-                root: root.canonicalize().unwrap(),
+                root: root.clone(),
                 selection: Selection {
-                    id: "test-board".into(),
+                    id: "test-firmware".into(),
                     profile: None,
-                    board: Board {
+                    firmware: Firmware {
                         description: "fixture".into(),
-                        bsp: "test-bsp".into(),
+                        platform: "test-platform".into(),
                         package: "test-firmware".into(),
                         bin: Some("robot-image".into()),
                         resolved_bin: "robot-image".into(),
+                        cargo: crate::model::CargoContext::fixture(&root, "test-platform"),
+                        ..Firmware::default()
                     },
-                    bsp: Bsp {
-                        workspace: "bsp/test".into(),
+                    platform: Platform {
+                        working_dir: Some("platform/test".into()),
                         target: "thumbv7em-none-eabihf".into(),
-                        cpu: Some("cortex-m4".into()),
+                        cpu: "cortex-m4".into(),
                         chip: "test-chip".into(),
+                        ..Platform::default()
                     },
                 },
             }
         }
 
         fn write_elf(&self) -> PathBuf {
-            let path = runner::firmware_elf_path(&self.root, &self.selection);
+            let path = runner::firmware_elf_path(&self.selection);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, "existing ELF").unwrap();
             path

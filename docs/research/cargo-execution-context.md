@@ -5,14 +5,14 @@ Dedicated rust-analyzer support is outside scope. Firmware declares a package, o
 binary and one Platform. Its working directory comes from Firmware or Platform configuration.
 Platform target, CPU and chip are required.
 
-## Current implementation
+## Implementation before 0.2
 
 [Design](../design.md#workspace-and-compiler-isolation) and [runner](../../src/runner.rs)
-currently require owning-workspace cwd and removal of inherited `RUSTUP_TOOLCHAIN`.
-Firmware commands additionally inject a project-local BSP cache. [Commands](../../src/commands.rs)
-group formatting and host checks by owner, while MCU Clippy uses the firmware context.
+previously required owning-workspace cwd and removal of inherited `RUSTUP_TOOLCHAIN`.
+Firmware commands additionally injected a project-local BSP cache. [Commands](../../src/commands.rs)
+grouped formatting and host checks by owner, while MCU Clippy uses the firmware context.
 [Scope](../../src/scope.rs) discovers an unknown owner using Cargo from the package directory,
-then loads metadata at the owner root. Revisiting this invariant is a design change, not
+then loads metadata at the owner root. Replacing that invariant was a design change, not
 something Cargo itself requires.
 
 ## Current design direction
@@ -43,13 +43,36 @@ The design retains Cargo's collision behavior without an additional bin-name err
 copy mechanism. Projects that need simultaneous distinct images can choose separate
 target directories while sharing compatible intermediates.
 
-Host lint/tests of packages in the firmware's workspace use the same resolved working and
-output directories, explicitly select `host-tuple` and do not inject Platform CPU flags.
-Host checks of local dependencies in other workspaces run from those workspace roots with
-their native directory settings. Grouping must preserve distinct execution contexts rather
-than merging every registration that shares a workspace.
+Reporting will show Platform CPU as its declared value instead of attempting to reconstruct
+the final rustflags. Firmware reports still expose Cargo's discovered workspace and effective
+directory/artifact paths. Native Cargo resolves configuration includes, string/array flag
+settings, target conditions and environment overrides; polyfw will not retain a parallel
+rustflags resolver merely to report an effective CPU. The later requirement for optional
+consistency checking may require configuration resolution solely for that comparison.
 
-The following is a design fragment, not configuration supported by the current implementation.
+`check-platform` is optional on both Platform and Firmware, with Firmware overriding Platform
+even when false; the final default is true. It compares Cargo's effective target-side target/CPU
+after polyfw's injected settings with the declared Platform. A confirmed mismatch or an
+inability to verify the effective values reliably is an error; false skips configuration
+analysis and checking silently. Perform it before selected builds and target-side Clippy stages,
+including when Cargo will reuse cached outputs. Do not apply it to host tests, build scripts,
+proc macros, formatting, info, cleaning or hardware commands. This is a configuration-layer
+check, not inspection of external compiler/wrapper internals or proof about an existing ELF.
+
+Formatting, host lint and tests of packages in the firmware's workspace use the same resolved
+working and output directories. Host lint/tests explicitly select `host-tuple` and do not inject
+Platform CPU flags. Checks of local dependencies in other workspaces run from those workspace
+roots with their native directory settings. Grouping must preserve distinct execution contexts
+rather than merging every registration that shares a workspace, even when formatting the same
+source more than once under different toolchains.
+
+Single-firmware cleaning keeps Cargo's package-clean behavior in its resolved context, with
+explicit firmware and host targets. All-firmware cleaning delegates full Cargo cleaning for
+each distinct directory context. There is no longer an isolated cache boundary protecting
+unregistered packages or manual Cargo outputs that share those directories. This breaking
+contract will be introduced as polyfw 0.2.0, with both compatibility baselines raised accordingly.
+
+The following directory-inheritance fragment belongs to the 0.2 configuration contract.
 Both firmware entries inherit the working and build directories, and override the final-output
 directory independently:
 
@@ -125,9 +148,10 @@ unit graph. Config resolution, cfg probes and firmware metadata should share exe
 metadata caches keyed only by workspace would conceal distinct package contexts.
 [Metadata contract](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html#output-format)
 
-The current resolver pins `cargo-config2` 0.1.45, whose loader has no include processing.
-Native include support and polyfw's reported target/CPU can therefore disagree regardless
-of cwd. Fixing discovery context alone does not establish resolver parity.
+The pinned `cargo-config2` 0.1.45 loader has no include processing. The 0.2 checker therefore
+rejects includes and conditional target settings as unverifiable when checking is enabled;
+when disabled, Cargo handles them directly. Reports expose the CPU declaration without
+claiming resolver parity. Fixing discovery context alone would not establish that parity.
 [Pinned loader](https://github.com/taiki-e/cargo-config2/blob/v0.1.45/src/de.rs#L131-L184)
 
 ## Members outside the workspace directory

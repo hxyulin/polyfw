@@ -1,36 +1,10 @@
 {
-  "$id": "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json",
+  "$id": "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.2.0/polyfw.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "polyfw registry",
-  "description": "Project configuration for registered embedded firmware.\nCargo metadata additionally validates BSP workspaces and firmware packages at runtime.",
+  "description": "Project configuration for registered embedded firmware.\nCargo metadata additionally validates firmware workspace membership and binary targets at runtime.",
   "type": "object",
   "properties": {
-    "boards": {
-      "description": "Programmable targets, keyed by board ID such as led-demo or buzzer-demo.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/Board"
-      },
-      "minProperties": 1,
-      "propertyNames": {
-        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
-      }
-    },
-    "bsps": {
-      "description": "Board models and their consuming workspaces, keyed by BSP ID such as demo-board.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/Bsp"
-      },
-      "minProperties": 1,
-      "propertyNames": {
-        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
-      }
-    },
     "config": {
       "description": "Optional tool settings; omitted values keep their defaults.",
       "allOf": [
@@ -51,69 +25,45 @@
       "description": "Full polyfw release version whose configuration contract this file follows.\nIncludes any prerelease suffix. Does not change merely because a newer CLI runs.",
       "type": "string"
     },
+    "firmwares": {
+      "description": "Selectable software entries, keyed by firmware ID such as led-demo or buzzer-demo.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Firmware"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      }
+    },
     "min-polyfw-version": {
       "description": "Oldest polyfw CLI release expected to interpret and execute this configuration\ncorrectly. Must not exceed config-version. The CLI also checks its own\noldest supported configuration version before loading the registry.",
       "type": "string"
+    },
+    "platforms": {
+      "description": "Reusable hardware/compiler settings, keyed by platform ID such as demo-board.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Platform"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      }
     }
   },
   "additionalProperties": false,
   "required": [
     "config-version",
     "min-polyfw-version",
-    "bsps",
-    "boards"
+    "platforms",
+    "firmwares"
   ],
   "definitions": {
-    "Board": {
-      "description": "A programmable target referring to a BSP and firmware package.",
-      "type": "object",
-      "properties": {
-        "bin": {
-          "description": "Firmware binary target name. Omit only if the package declares exactly one binary,\ncounting feature-gated binaries independently of Cargo's default-run setting.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "bsp": {
-          "description": "BSP ID declared in this registry's bsps table.",
-          "type": "string"
-        },
-        "description": {
-          "description": "Human-readable label for board lists and the picker.",
-          "type": "string"
-        },
-        "package": {
-          "description": "Cargo package name in the BSP workspace. It must declare a host-testable library\nand at least one firmware binary.",
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "description",
-        "bsp",
-        "package"
-      ]
-    },
-    "Bsp": {
-      "description": "A board model's consuming Cargo workspace and hardware identity.",
-      "type": "object",
-      "properties": {
-        "chip": {
-          "description": "probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.",
-          "type": "string"
-        },
-        "workspace": {
-          "description": "Cargo workspace directory relative to the project root. Use `.` for the root;\nabsolute paths and `..` are rejected. The workspace can be virtual.",
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "workspace",
-        "chip"
-      ]
-    },
     "Config": {
       "description": "Project-wide checking and editor settings.",
       "type": "object",
@@ -129,7 +79,7 @@
           }
         },
         "vscode": {
-          "description": "Editor-file management when saving or clearing board selection.",
+          "description": "Editor-file management when saving or clearing firmware selection.",
           "allOf": [
             {
               "$ref": "#/definitions/VscodeConfig"
@@ -141,6 +91,117 @@
         }
       },
       "additionalProperties": false
+    },
+    "Firmware": {
+      "description": "A selectable software entry referring to one platform and Cargo package.",
+      "type": "object",
+      "properties": {
+        "bin": {
+          "description": "Firmware binary target name. Omit only if the package declares exactly one binary,\ncounting feature-gated binaries independently of Cargo's default-run setting.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build-dir": {
+          "description": "Intermediate/cache directory overriding the platform; relative to polyfw.toml.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "check-platform": {
+          "description": "Override platform consistency checking, including explicitly disabling it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Human-readable label for firmware lists and the picker.",
+          "type": "string"
+        },
+        "package": {
+          "description": "Cargo package name in the workspace discovered from the effective working directory. It must declare a host-testable library\nand at least one firmware binary.",
+          "type": "string"
+        },
+        "platform": {
+          "description": "Platform ID declared in this registry's platforms table.",
+          "type": "string"
+        },
+        "target-dir": {
+          "description": "Final-output directory overriding the platform; relative to polyfw.toml.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "working-dir": {
+          "description": "Cargo working directory overriding the platform; relative to polyfw.toml.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "platform",
+        "package"
+      ]
+    },
+    "Platform": {
+      "description": "Reusable hardware and compilation settings, independent of Cargo workspace ownership.",
+      "type": "object",
+      "properties": {
+        "build-dir": {
+          "description": "Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels\nto retain Cargo's configuration/environment defaults. Relative to polyfw.toml.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "check-platform": {
+          "description": "Check effective target-side Cargo target/CPU before build and MCU Clippy. Defaults\nto true after Firmware inheritance. Mismatch or unverifiable settings are errors;\nfalse skips analysis silently. Excludes host work, wrappers and existing ELF files.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "chip": {
+          "description": "probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.",
+          "type": "string"
+        },
+        "cpu": {
+          "description": "Declared target CPU. Cargo's native rustflags precedence determines its final use.",
+          "type": "string"
+        },
+        "target": {
+          "description": "Explicit Cargo compilation target, including host-tuple or a custom JSON target.",
+          "type": "string"
+        },
+        "target-dir": {
+          "description": "Default final-output directory override. Omit at both levels for Cargo defaults.\nRelative to polyfw.toml, independently of working-dir.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "working-dir": {
+          "description": "Default Cargo working directory. Firmware may override it. Relative paths start\nbeside polyfw.toml; absolute paths and `..` are supported. One level must supply it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "cpu",
+        "chip"
+      ]
     },
     "VscodeConfig": {
       "description": "VS Code launch-file generation settings.",

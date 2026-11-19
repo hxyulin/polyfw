@@ -2,7 +2,7 @@
 
 This guide connects an existing embedded Rust project to polyfw. The example project,
 `firmware-demos`, has two firmware packages: `led-demo` and `buzzer-demo`. Each has a matching
-board ID, and both run on the same physical board through the shared `demo-board` BSP.
+firmware ID, and both run on the same physical board through the shared `demo-board` platform.
 Replace the chip, target, CPU and package names with those of your project.
 
 For everyday commands, see [Usage](usage.md). For package traversal and validation internals,
@@ -13,10 +13,10 @@ see [Design](design.md).
 polyfw expects working firmware sources, runtime setup and linker scripts. Keep those in
 the consuming project. Each firmware package must:
 
-- Be a member of the Cargo workspace registered for its BSP.
+- Be a member of the Cargo workspace discovered from its effective working directory.
 - Declare a library that can be checked on both the MCU and the development host.
 - Declare at least one binary. A package with multiple binaries needs an explicit `bin`
-  in its board registration.
+  in its firmware registration.
 
 A workspace containing both firmware packages can have this layout:
 
@@ -103,32 +103,29 @@ Keep a lockfile for every workspace used by the checks; build, lint and test use
 
 ## Configure the firmware target
 
-Set the target in the consuming workspace's `.cargo/config.toml`. For the example MCU:
+Declare the compilation target and CPU in a Platform in `polyfw.toml`. polyfw passes an
+explicit `--target` for target-side build/check commands and appends the CPU to the target's
+`CARGO_TARGET_<TARGET>_RUSTFLAGS` environment value. Cargo merges the flags with its configuration.
+Keep runtime, linker, environment, feature and profile settings in the consuming Cargo project.
+CPU selection alone does not provide a runtime or memory layout.
 
-```toml
-[build]
-target = "thumbv7em-none-eabihf"
+Cargo discovers configuration and rustup selects a toolchain from the effective `working-dir`.
+Discovering a different workspace root does not change this directory. Workspace membership still
+owns the lockfile and profiles. Packages outside their workspace directory are supported when
+Cargo declares them members; use Cargo's `package.workspace` setting when needed. A separate
+workspace registry or manifest field is unnecessary.
 
-[target.thumbv7em-none-eabihf]
-rustflags = ["-C", "target-cpu=cortex-m7"]
-```
+Native flag precedence applies. `CARGO_ENCODED_RUSTFLAGS` and `RUSTFLAGS` can replace target flags,
+including the injected CPU; matching conditional target flags can also change the CPU. Introducing
+target flags suppresses lower-priority `build.rustflags`, as it does in Cargo. Keep required linker
+flags at the appropriate target level. `info` reports the declared Platform CPU; consistency
+checking is described [below](#check-platform-consistency).
 
-Merge these entries into your existing Cargo configuration and retain the linker settings
-required by the firmware. CPU selection alone does not provide a runtime or a memory layout.
-
-Each BSP workspace must resolve to exactly one explicit `build.target` or
-`CARGO_BUILD_TARGET`. An implicit host default or a list of multiple targets is rejected.
-Target, CPU and profiles belong to Cargo configuration, not `polyfw.toml`.
-
-polyfw reads the effective configuration, including ancestor files, Cargo home and environment
-overrides. `host-tuple` resolves to the actual host target. A custom target uses its target-file
-stem for the artifact directory. The last explicit `target-cpu` option is reported; without one,
-the UI shows `compiler default` and JSON reports `cpu: null`. Rustflags response files such as
-`@flags.txt` are rejected because polyfw cannot resolve their CPU settings.
-
-Every Cargo subprocess runs from its owning workspace and clears inherited `RUSTUP_TOOLCHAIN`.
-This lets firmware and dependencies use their own Rust pins. To test a compiler override, run
-Cargo directly in that workspace; an outer `cargo +VERSION` does not override polyfw's children.
+`host-tuple` resolves to Cargo's concrete host target. A custom JSON target uses its file stem for
+artifact lookup; a relative target-file argument follows Cargo's working-directory rules.
+Every Cargo child clears inherited `RUSTUP_TOOLCHAIN`, including metadata and configuration probes.
+An outer `cargo +VERSION` therefore does not override the consuming project's toolchain.
+polyfw does not generate rust-analyzer settings; configure the editor through its native facilities.
 
 ## Initialize a configuration
 
@@ -150,7 +147,7 @@ ancestors, so it can create a separate configuration inside an existing project'
 Any existing `polyfw.toml` entry, including a directory or dangling symlink, is an error; move or
 remove it yourself before generating a replacement. There is no overwrite or merge mode.
 
-The template contains one BSP and one board, TODO values for the workspace, chip, description
+The template contains one platform and one firmware, TODO values for target, CPU, chip, description
 and firmware package, and the default checking/editor settings. Edit those values to match your
 project; set `bin` when the package has multiple binaries. The schema link and `config-version`
 use the running CLI's release version; `min-polyfw-version` uses its conservative
@@ -164,15 +161,15 @@ the configuration and Cargo setup.
 
 ## Register the firmware targets
 
-Keep `polyfw.toml` at the `firmware-demos` root, which owns selection state, generated editor
-files and firmware artifacts. Customize the generated template to register both firmware targets
-against the same BSP:
+Keep `polyfw.toml` at the `firmware-demos` root, which owns selection state and generated editor
+files. Cargo output directories are configured independently. Customize the generated template to register both firmware targets
+against the same platform:
 
 ```toml
-#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.1.0/polyfw.schema.json
+#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.2.0/polyfw.schema.json
 
-config-version = "0.1.0"
-min-polyfw-version = "0.1.0"
+config-version = "0.2.0"
+min-polyfw-version = "0.2.0"
 
 [config]
 local-dependencies = ["./**"]
@@ -180,47 +177,68 @@ local-dependencies = ["./**"]
 [config.vscode]
 enabled = true
 
-[bsps.demo-board]
-workspace = "."
+[platforms.demo-board]
+target = "thumbv7em-none-eabihf"
+cpu = "cortex-m7"
 chip = "STM32H723VGTx"
+working-dir = "."
+build-dir = "target/build/demo-board"
+# check-platform defaults to true.
 
-[boards.led-demo]
+[firmwares.led-demo]
 description = "LED demo firmware"
-bsp = "demo-board"
+platform = "demo-board"
 package = "led-demo"
+target-dir = "target/firmware/led-demo"
 
-[boards.buzzer-demo]
+[firmwares.buzzer-demo]
 description = "Buzzer demo firmware"
-bsp = "demo-board"
+platform = "demo-board"
 package = "buzzer-demo"
+target-dir = "target/firmware/buzzer-demo"
 ```
 
-The board IDs select the two firmware packages for the same hardware. Each package has one
-binary, so both registrations omit `bin`. The shared BSP points to the root workspace and chip.
+The firmware IDs select the two firmware packages for the same hardware. Each package has one
+binary, so both registrations omit `bin`. Both inherit the same working and intermediate directories, while retaining separate final images.
 
 Both `config` tables are optional; omitting them preserves the defaults shown here.
-Unknown fields are errors at every level. Board and BSP IDs start with a lowercase letter and
+Unknown fields are errors at every level. Firmware and platform IDs start with a lowercase letter and
 contain lowercase letters, digits and single hyphens, for example `demo-board`.
-At least one BSP and one board are required.
+At least one platform and one firmware are required.
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `config-version` | Yes | Full polyfw release version whose configuration contract the file follows |
 | `min-polyfw-version` | Yes | Minimum CLI release expected to interpret and execute this configuration correctly |
-| `bsps.ID.workspace` | Yes | Cargo workspace directory relative to the project root; `.` is valid, absolute paths and `..` are rejected |
-| `bsps.ID.chip` | Yes | probe-rs chip name used by hardware commands and VS Code |
-| `boards.ID.description` | Yes | Label shown in board lists and the selector |
-| `boards.ID.bsp` | Yes | ID of a BSP in the same registry |
-| `boards.ID.package` | Yes | Firmware package name in that BSP's workspace |
-| `boards.ID.bin` | No | Binary target name; omit only if the package declares exactly one binary |
+| `platforms.ID.target` | Yes | Explicit compilation target, `host-tuple` or custom JSON target argument |
+| `platforms.ID.cpu` | Yes | Declared CPU supplied through target-specific rustflags |
+| `platforms.ID.chip` | Yes | probe-rs chip name used by hardware commands and VS Code |
+| `firmwares.ID.description` | Yes | Label shown in firmware lists and the selector |
+| `firmwares.ID.platform` | Yes | ID of a platform in the same registry |
+| `firmwares.ID.package` | Yes | Firmware package name in the discovered Cargo workspace |
+| `firmwares.ID.bin` | No | Binary target name; omit only if the package declares exactly one binary |
+| `platforms.ID.working-dir`, `firmwares.ID.working-dir` | Effective value required | Cargo invocation directory; firmware overrides platform |
+| `platforms.ID.build-dir`, `firmwares.ID.build-dir` | No | Intermediate/cache directory override; requires Cargo 1.91+ when explicitly supplied |
+| `platforms.ID.target-dir`, `firmwares.ID.target-dir` | No | Final-output directory override |
+| `platforms.ID.check-platform`, `firmwares.ID.check-platform` | No | Effective target/CPU consistency check; firmware overrides platform, default `true` |
 | `config.local-dependencies` | No | Directory globs selecting reachable path dependencies for checks; default `["./**"]` |
 | `config.vscode.enabled` | No | Manage the entire `.vscode/launch.json` on selection save/clear; default `true` |
 
-For an explicit binary, add `bin = "led-demo"` to `[boards.led-demo]`. Without `bin`, polyfw
+For an explicit binary, add `bin = "led-demo"` to `[firmwares.led-demo]`. Without `bin`, polyfw
 infers the sole binary for ELF lookup but leaves Cargo's default build targets intact.
 It counts all declared binaries, including feature-gated targets, independently of `default-run`.
-Different packages in one BSP must use distinct binary names because their artifact paths share
-one BSP cache.
+Directory fields inherit independently. Firmware values override Platform values; omission at both
+levels preserves Cargo's native directory configuration, environment and defaults for `build-dir`
+and `target-dir`. All three relative directory values start beside `polyfw.toml`, even when inherited;
+`working-dir` does not rebase either output directory. Absolute paths and `..` can refer outside the
+polyfw project. The working directory must exist; Cargo manages creation of output directories.
+
+A Platform is independent of workspace ownership. Its required target and CPU do not guarantee
+complete cache equivalence: Cargo fingerprints also account for toolchains, flags, features and
+dependencies. Share `build-dir` to reuse compatible intermediates and choose distinct `target-dir`
+values when final images must coexist. Same-named binaries follow native Cargo behavior; no extra
+polyfw collision error or ELF copying is added. A shared final filename can be replaced by a later
+build. polyfw never inspects Cargo's private intermediate layout.
 
 The `#:schema` URL pins the release named by `config-version`, including patch and prerelease
 suffixes: for example, `0.2.0-rc.1` uses `v0.2.0-rc.1`. A newer compatible CLI can operate on
@@ -254,8 +272,9 @@ file to match the development executable.
 
 The schema checks configuration structure; polyfw additionally validates Cargo workspace
 membership and targets at runtime.
-Most project commands validate every registered BSP before acting, so a broken BSP can prevent
-a command for another board from starting.
+Most project commands resolve every registered firmware before acting, so a broken registration can
+prevent a command for another firmware from starting. Consistency checking only applies to the
+selected target-side build/check operations.
 
 Add generated files to the consuming project's `.gitignore`:
 
@@ -269,15 +288,36 @@ Then inspect the registry and run the first checks:
 
 ```sh
 polyfw info
-polyfw info --board led-demo
-polyfw info --board buzzer-demo
+polyfw info --firmware led-demo
+polyfw info --firmware buzzer-demo
 polyfw select led-demo --release
-polyfw verify --all-boards
-polyfw build --all-boards --release
+polyfw verify --all-firmwares
+polyfw build --all-firmwares --release
 ```
 
-Connect the board before running `polyfw flash`. See [hardware commands](usage.md#flash-and-monitor)
+Connect the firmware before running `polyfw flash`. See [hardware commands](usage.md#flash-and-monitor)
 for probe selection and image freshness.
+
+## Check platform consistency
+
+`check-platform` defaults to `true`. Before `build` and the target-side Clippy stages of `lint` or
+`verify`, polyfw compares the selected firmware's effective Cargo target/CPU with its Platform.
+The comparison includes polyfw's explicit target and injected CPU, plus Cargo environment flag
+precedence. A different Cargo `build.target` default is harmless when the explicit target wins.
+The CPU comparison uses the last explicit CPU option, including a literal `native` value.
+
+A mismatch or inability to verify reliably is an error. The current checker supports ordinary
+target-specific string/array flags and environment overrides. It reports configuration includes,
+conditional target sections, profile/unstable configuration sources and rustflags response files
+as unverifiable, rather than approximating their effect. Missing explicit CPU flags are also
+unverifiable; compiler-default CPU equivalence is not inferred. Set `check-platform = false` on a
+Platform or Firmware to skip this analysis silently and let Cargo handle those configurations.
+A Firmware's explicit `false` overrides a Platform's `true`.
+
+Checking covers target-side compilation and its dependencies, including cached builds. It does
+not inspect custom compiler/wrapper internals or identify the contents of an existing ELF. Host
+tests, build scripts and proc macros are excluded. `info`, `fmt`, `test`, `clean` and hardware
+commands do not trigger it. `info` continues to show the declared CPU even when checking is off.
 
 ## Configuration compatibility
 
@@ -288,7 +328,7 @@ follows; it is neither the firmware package version nor the last CLI that ran on
 `min-polyfw-version` is the oldest CLI expected to interpret and execute the configuration
 correctly. Neither declaration changes merely because the operating CLI is upgraded.
 
-The current configuration floor and conservative minimum CLI recommendation are both `0.1.0`.
+The current configuration floor and conservative minimum CLI recommendation are both `0.2.0`.
 Each CLI compares version precedence, ignoring build metadata, and requires all three conditions:
 
 ```text
@@ -359,17 +399,23 @@ excluded packages. They select polyfw's checks; Cargo still builds whatever depe
 packages require. See [check planning](design.md#check-planning) for host and MCU classification.
 
 In this example, `polyfw verify led-demo` checks the LED package; sharing a workspace does not
-make `buzzer-demo` its dependency. Use `polyfw verify --all-boards` to check both firmware packages.
+make `buzzer-demo` its dependency. Use `polyfw verify --all-firmwares` to check both firmware packages.
 
-## Add boards and workspaces
+## Add firmware and platforms
 
-To add another programmable board, add a `boards.ID` table referring to its package and BSP.
-Several boards can share a package and binary. For a different consuming workspace or hardware
-configuration, add another BSP and give that workspace its own Cargo configuration and Rust pin.
-A BSP workspace can be virtual, and its ID need not be a Cargo package name.
+Add a `firmwares.ID` table for each selectable program/platform binding. Different firmware IDs
+may refer to the same package and binary; a firmware always references exactly one Platform.
+A Platform can describe a board model or MCU type and serve firmware in different workspaces.
+Override `working-dir` on a firmware to select another Cargo configuration/toolchain context.
+Cargo supplies workspace ownership; membership does not require physical containment.
 
-Run `polyfw info`, `polyfw verify --all-boards` and `polyfw build --all-boards --release` after
-changing the registry. The project root need not be a Cargo workspace or Git repository.
+Run `polyfw info`, `polyfw verify --all-firmwares` and `polyfw build --all-firmwares --release`
+after changing the registry. The polyfw project root need not be a Cargo workspace or Git repository.
+
+Migrating from 0.1 requires replacing `bsps`/`boards` with `platforms`/`firmwares`, moving workspace
+selection to `working-dir`, and declaring target/CPU. Review directory defaults and update both
+version declarations. Replace saved selection with `polyfw select FIRMWARE` or clear it using
+`polyfw select --clear`. Old configuration, CLI, JSON and saved-state aliases are not retained.
 
 ## Choose who manages VS Code configuration
 

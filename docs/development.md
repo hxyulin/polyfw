@@ -34,7 +34,7 @@ existing consumer:
 
 ```sh
 just run --project-root /path/to/firmware-demos info
-just run --project-root /path/to/firmware-demos verify --all-boards
+just run --project-root /path/to/firmware-demos verify --all-firmwares
 ```
 
 Or install this checkout with `cargo install --path . --locked`. Cargo children launched by polyfw
@@ -48,10 +48,10 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/model.rs`, `src/registry.rs` | Configuration/schema model, root discovery, validation and saved state |
 | `src/config_version.rs` | Version preflight, SemVer precedence and release-maintained compatibility baselines |
 | `src/init.rs` | Configuration template and exclusive creation without project loading |
-| `src/cargo_config.rs` | Effective Cargo target/CPU and toolchain resolution |
+| `src/cargo_config.rs` | Optional effective Cargo target/CPU consistency checking |
 | `src/local_dependencies.rs`, `src/scope.rs` | Canonical directory matching and host/MCU package scopes |
-| `src/commands.rs` | Board/profile resolution and ordered Cargo stages |
-| `src/runner.rs`, `src/profile.rs` | Process construction, cache isolation and shared artifact paths |
+| `src/commands.rs` | Firmware/profile resolution and ordered Cargo stages |
+| `src/runner.rs`, `src/profile.rs` | Process construction, execution contexts and shared artifact paths |
 | `src/probe.rs`, `src/vscode.rs` | Hardware subprocesses and generated debugger settings |
 | `src/info.rs`, `src/ui.rs` | Read-only reports and terminal output |
 | `tests/project_root.rs`, `tests/standalone.rs` | Executable-level project isolation and external-tool boundaries |
@@ -89,7 +89,7 @@ validation and prose explanation. Use a locally generated schema for an untagged
 build, as described in [Configuration](configuration.md#register-the-firmware-targets).
 
 Use English throughout, with the `firmware-demos` project for user-facing examples: `led-demo`
-and `buzzer-demo` share the `demo-board` BSP. Put complete explanations in their owning guide
+and `buzzer-demo` share the `demo-board` Platform. Put complete explanations in their owning guide
 and link from other pages when further reading is needed. Keep simple explanations in prose
 and omit unnecessary background references. Use relative links between bundled guides and
 README so they work offline with the matching release. Keep external links only when the task

@@ -10,7 +10,7 @@ use dialoguer::console::{self, Term, style, truncate_str};
 use dialoguer::theme::ColorfulTheme;
 
 use crate::Result;
-use crate::info::{Board, Report};
+use crate::info::{Firmware, Report};
 use crate::model::Registry;
 use crate::profile::Profile;
 
@@ -62,14 +62,14 @@ impl Ui {
         println!("Then run polyfw info from that directory, or pass --project-root <DIR>.");
     }
 
-    pub(crate) fn selected(&self, board: &str, profile: Option<&Profile>) {
+    pub(crate) fn selected(&self, firmware: &str, profile: Option<&Profile>) {
         let profile = profile
             .map(|profile| format!(" ({})", profile.name()))
             .unwrap_or_default();
         println!(
             "{} {}{profile}",
             style("selected").green().bold(),
-            style(board).bold()
+            style(firmware).bold()
         );
     }
 
@@ -83,22 +83,22 @@ impl Ui {
         }
     }
 
-    pub(crate) fn cleaning_bsp(&self, bsp: &str, boards: &[&str]) {
+    pub(crate) fn cleaning_directories(&self, platform: &str, firmwares: &[&str]) {
         println!(
-            "{} {} (boards: {})",
-            style("cleaning BSP").cyan().bold(),
-            style(bsp).yellow().bold(),
-            boards.join(", ")
+            "{} {} (firmwares: {})",
+            style("cleaning Cargo directories").cyan().bold(),
+            style(platform).yellow().bold(),
+            firmwares.join(", ")
         );
     }
 
-    pub(crate) fn cleaning_package(&self, package: &str, bsp: &str, boards: &[&str]) {
+    pub(crate) fn cleaning_package(&self, package: &str, platform: &str, firmwares: &[&str]) {
         println!(
-            "{} {} (BSP: {}; boards: {})",
+            "{} {} (target-dir: {}; firmwares: {})",
             style("cleaning package").cyan().bold(),
             style(package).yellow().bold(),
-            style(bsp).dim(),
-            boards.join(", ")
+            style(platform).dim(),
+            firmwares.join(", ")
         );
     }
 
@@ -122,58 +122,57 @@ impl Ui {
                 .as_ref()
                 .map(|profile| format!(" ({})", profile.name()))
                 .unwrap_or_default();
-            println!("saved selection: {}{profile}\n", saved.board);
+            println!("saved selection: {}{profile}\n", saved.firmware);
         }
-        if let Some((id, board)) = report
-            .boards
+        if let Some((id, firmware)) = report
+            .firmwares
             .iter()
-            .find(|(_, board)| board.local_dependencies.is_some())
+            .find(|(_, firmware)| firmware.local_dependencies.is_some())
         {
-            self.print_board_info(report, id, board);
+            self.print_firmware_info(report, id, firmware);
             return;
         }
-        let bsp_rows = report
-            .bsps
+        let platform_rows = report
+            .platforms
             .iter()
-            .map(|(name, bsp)| {
+            .map(|(name, platform)| {
                 vec![
                     name.clone(),
-                    bsp.registered_boards.to_string(),
-                    bsp.workspace
-                        .strip_prefix(&report.repository_root)
-                        .unwrap_or(&bsp.workspace)
-                        .display()
-                        .to_string(),
-                    bsp.target.clone(),
-                    bsp.cpu.clone().unwrap_or_else(|| "compiler default".into()),
-                    bsp.chip.clone(),
+                    platform.registered_firmwares.to_string(),
+                    platform.target.clone(),
+                    platform.cpu.clone(),
+                    platform.chip.clone(),
                 ]
             })
             .collect::<Vec<_>>();
-        self.section("bsps", Some(bsp_rows.len()), false);
+        self.section("platforms", Some(platform_rows.len()), false);
         self.print_table(
-            &["name", "boards", "workspace", "target", "cpu", "chip"],
-            &bsp_rows,
+            &["name", "firmwares", "target", "declared CPU", "chip"],
+            &platform_rows,
         );
 
-        let mut headers = vec!["status".to_owned(), "name".to_owned(), "bsp".to_owned()];
-        if let Some(board) = report.boards.values().next() {
+        let mut headers = vec![
+            "status".to_owned(),
+            "name".to_owned(),
+            "platform".to_owned(),
+        ];
+        if let Some(firmware) = report.firmwares.values().next() {
             headers.extend(
-                board
+                firmware
                     .artifacts
                     .iter()
                     .map(|artifact| format!("{} ELF", artifact.profile.name())),
             );
         }
         headers.push("description".to_owned());
-        let board_rows = report
-            .boards
+        let firmware_rows = report
+            .firmwares
             .iter()
-            .map(|(name, board)| {
+            .map(|(name, firmware)| {
                 let saved = report
                     .saved_selection
                     .as_ref()
-                    .filter(|saved| saved.board == *name);
+                    .filter(|saved| saved.firmware == *name);
                 let mut row = if let Some(saved) = saved {
                     let profile = saved
                         .profile
@@ -186,48 +185,56 @@ impl Ui {
                             .bold()
                             .to_string(),
                         style(name).yellow().to_string(),
-                        style(&board.bsp).yellow().to_string(),
+                        style(&firmware.platform).yellow().to_string(),
                     ]
                 } else {
-                    vec![String::new(), name.clone(), board.bsp.clone()]
+                    vec![String::new(), name.clone(), firmware.platform.clone()]
                 };
                 row.extend(
-                    board
+                    firmware
                         .artifacts
                         .iter()
                         .map(|artifact| artifact_status(artifact.exists)),
                 );
                 row.push(if saved.is_some() {
-                    style(&board.description).yellow().to_string()
+                    style(&firmware.description).yellow().to_string()
                 } else {
-                    board.description.clone()
+                    firmware.description.clone()
                 });
                 row
             })
             .collect::<Vec<_>>();
-        self.section("boards", Some(board_rows.len()), true);
+        self.section("firmwares", Some(firmware_rows.len()), true);
         self.print_table(
             &headers.iter().map(String::as_str).collect::<Vec<_>>(),
-            &board_rows,
+            &firmware_rows,
         );
     }
 
-    fn print_board_info(&self, report: &Report, id: &str, board: &Board) {
-        let bsp = &report.bsps[&board.bsp];
-        self.section("board", None, false);
+    fn print_firmware_info(&self, report: &Report, id: &str, firmware: &Firmware) {
+        let platform = &report.platforms[&firmware.platform];
+        self.section("firmware", None, false);
         let fields = [
             ("name", id.to_owned()),
-            ("description", board.description.clone()),
-            ("bsp", board.bsp.clone()),
-            ("workspace", bsp.workspace.display().to_string()),
-            ("target", bsp.target.clone()),
+            ("description", firmware.description.clone()),
+            ("platform", firmware.platform.clone()),
+            ("workspace", firmware.workspace.display().to_string()),
+            ("working-dir", firmware.working_dir.display().to_string()),
+            ("target-dir", firmware.target_dir.display().to_string()),
             (
-                "cpu",
-                bsp.cpu.clone().unwrap_or_else(|| "compiler default".into()),
+                "build-dir",
+                firmware
+                    .build_dir
+                    .as_ref()
+                    .map(|directory| directory.display().to_string())
+                    .unwrap_or_else(|| "not reported by Cargo".into()),
             ),
-            ("chip", bsp.chip.clone()),
-            ("package", board.package.clone()),
-            ("bin", board.bin.clone()),
+            ("check-platform", firmware.check_platform.to_string()),
+            ("target", platform.target.clone()),
+            ("cpu", platform.cpu.clone()),
+            ("chip", platform.chip.clone()),
+            ("package", firmware.package.clone()),
+            ("bin", firmware.bin.clone()),
         ];
         let rows = fields
             .into_iter()
@@ -235,8 +242,8 @@ impl Ui {
             .collect::<Vec<_>>();
         self.print_table(&["field", "value"], &rows);
 
-        self.section("artifacts", Some(board.artifacts.len()), true);
-        let rows = board
+        self.section("artifacts", Some(firmware.artifacts.len()), true);
+        let rows = firmware
             .artifacts
             .iter()
             .map(|artifact| {
@@ -249,7 +256,7 @@ impl Ui {
             .collect::<Vec<_>>();
         self.print_table(&["profile", "ELF", "path"], &rows);
 
-        if let Some(packages) = &board.local_dependencies {
+        if let Some(packages) = &firmware.local_dependencies {
             self.section("local dependencies", Some(packages.len()), true);
             let rows = packages
                 .iter()
@@ -265,48 +272,48 @@ impl Ui {
         }
     }
 
-    pub(crate) fn prompt_board(
+    pub(crate) fn prompt_firmware(
         &self,
         registry: &Registry,
         saved: Option<&str>,
         no_terminal_hint: &str,
     ) -> Result<String> {
         if !Term::stderr().is_term() {
-            return Err(format!("no board selected; {no_terminal_hint}").into());
+            return Err(format!("no firmware selected; {no_terminal_hint}").into());
         }
-        let board_width = registry
-            .boards
+        let firmware_width = registry
+            .firmwares
             .keys()
             .map(|name| name.chars().count())
             .max()
             .unwrap_or(5)
             .min(24);
-        let bsp_width = registry
-            .boards
+        let platform_width = registry
+            .firmwares
             .values()
-            .map(|board| board.bsp.chars().count())
+            .map(|firmware| firmware.platform.chars().count())
             .max()
             .unwrap_or(3)
             .min(12);
         let description_width = self
             .width
-            .saturating_sub(board_width + bsp_width + 8) // 8 is the width of the marker
+            .saturating_sub(firmware_width + platform_width + 8) // 8 is the width of the marker
             .min(30);
         let names: Vec<String> = registry
-            .boards
+            .firmwares
             .iter()
-            .map(|(id, board)| {
+            .map(|(id, firmware)| {
                 let marker = if saved == Some(id.as_str()) {
                     " [saved]"
                 } else {
                     ""
                 };
                 format!(
-                    "{:<board_width$}  {:<bsp_width$}  {:<description_width$}{}",
+                    "{:<firmware_width$}  {:<platform_width$}  {:<description_width$}{}",
                     id,
-                    board.bsp,
+                    firmware.platform,
                     truncate_str(
-                        &board.description,
+                        &firmware.description,
                         description_width,
                         if self.unicode { "…" } else { "..." },
                     ),
@@ -315,7 +322,12 @@ impl Ui {
             })
             .collect();
         let initial = saved
-            .and_then(|id| registry.boards.keys().position(|candidate| candidate == id))
+            .and_then(|id| {
+                registry
+                    .firmwares
+                    .keys()
+                    .position(|candidate| candidate == id)
+            })
             .unwrap_or(0);
         let theme = ColorfulTheme {
             prompt_prefix: style("?".to_owned()).cyan().bold(),
@@ -329,7 +341,7 @@ impl Ui {
             style("type to filter; arrows to move; Enter to choose; Esc to cancel").dim()
         );
         let Some(index) = FuzzySelect::with_theme(&theme)
-            .with_prompt("board")
+            .with_prompt("firmware")
             .items(&names)
             .default(initial)
             .max_length(14)
@@ -340,7 +352,7 @@ impl Ui {
             return Err("selection cancelled".into());
         };
         registry
-            .boards
+            .firmwares
             .keys()
             .nth(index)
             .cloned()
@@ -493,11 +505,11 @@ mod tests {
 
     #[test]
     fn tables_fit_narrow_terminals_without_losing_cell_contents() {
-        let headers = ["name", "boards", "workspace", "target", "cpu", "chip"];
+        let headers = ["name", "firmwares", "workspace", "target", "cpu", "chip"];
         let rows = vec![vec![
             "dm-mc02".into(),
             "12".into(),
-            "bsp/dm-mc02".into(),
+            "platform/dm-mc02".into(),
             "thumbv7em-none-eabihf".into(),
             "cortex-m7".into(),
             "STM32H723VGTx".into(),

@@ -28,9 +28,10 @@ toolchain and fixture setup.
 
 ## Preserve repository invariants
 
-- Construct Cargo children through `runner::workspace_cargo` / `workspace_command`; run them
-  from their owning workspace and clear inherited `RUSTUP_TOOLCHAIN`. Use `cargo_command`
-  when BSP firmware-cache isolation is required. Apply this to metadata and fixture setup too.
+- Construct Cargo children through `runner::workspace_cargo` / `workspace_command` and the
+  context-aware `cargo_command` / `target_cargo` helpers; clear inherited `RUSTUP_TOOLCHAIN`.
+  Preserve each firmware's resolved working/output directories. Other-workspace dependency
+  checks use their owning workspace root. Apply the same process boundary to fixtures and probes.
 - Use `runner::firmware_elf_path` for ELF lookup, reports and editor generation so every
   consumer shares the build/profile layout.
 - Keep help, version and schema independent of projects and Rust tools. Probe listing needs

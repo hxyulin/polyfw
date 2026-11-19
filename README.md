@@ -1,12 +1,13 @@
 # polyfw
 
 `polyfw` builds, checks, flashes and monitors embedded Rust firmware. Register your existing
-Cargo workspaces and boards in `polyfw.toml`, then use the same commands for each board.
+firmware packages and platforms in `polyfw.toml`, then use the same commands for each firmware.
 
-A **board** names a programmable target. Its **BSP** identifies the board model, consuming
-Cargo workspace and probe chip. Cargo keeps ownership of compiler settings, dependencies
-and profiles; polyfw manages board selection, firmware artifact paths and optional VS Code
-debug configurations.
+A **Firmware** names a selectable software entry. Its **Platform** declares the target, CPU and
+probe chip, and can describe a board model or MCU type. Each firmware selects its Cargo working
+and output directories, inheriting Platform defaults. Cargo owns workspace membership,
+configuration merging, dependencies and profiles; polyfw manages selection, consistency checks,
+artifact lookup and optional VS Code debug configurations.
 
 ## Install
 
@@ -55,20 +56,20 @@ Run `polyfw init` in your existing firmware project, then
 [edit the generated configuration](docs/configuration.md#initialize-a-configuration)
 to match its workspace, chip and firmware packages.
 The `firmware-demos` example registers `led-demo` and `buzzer-demo` as two firmware targets for
-the same physical board, sharing the `demo-board` BSP. From that project or any subdirectory:
+the same physical board, sharing the `demo-board` Platform. From that project or any subdirectory:
 
 ```sh
 polyfw info
 polyfw select led-demo --release
-polyfw verify --all-boards
-polyfw build --all-boards --release
+polyfw verify --all-firmwares
+polyfw build --all-firmwares --release
 polyfw flash
 polyfw select buzzer-demo --release
 polyfw flash
 ```
 
-`verify --all-boards` checks formatting, runs MCU and host Clippy, then runs host tests for both
-packages. `build --all-boards --release` creates both release images. Selection chooses which
+`verify --all-firmwares` checks formatting, runs MCU and host Clippy, then runs host tests for both
+packages. `build --all-firmwares --release` creates both release images. Selection chooses which
 image to flash. `run`, `flash` and `attach` use an existing image: build again after changing
 source. Use `polyfw run` to flash and monitor, or `polyfw attach` to monitor firmware already
 running on the board.
@@ -78,14 +79,14 @@ Pass a project explicitly when running elsewhere:
 ```sh
 polyfw --project-root /path/to/firmware-demos info
 polyfw help build
-polyfw verify --all-boards
+polyfw verify --all-firmwares
 ```
 
 ## Documentation
 
 | Task | Guide |
 | --- | --- |
-| Register workspaces and boards; configure checks and editor generation | [Project configuration](docs/configuration.md) |
+| Register firmware and platforms; configure checks and editor generation | [Project configuration](docs/configuration.md) |
 | Select, build, test, flash, debug and troubleshoot | [Usage](docs/usage.md) |
 | Understand validation, dependency scopes and state management | [Design](docs/design.md) |
 | Change polyfw, run checks and maintain generated documentation | [Development](docs/development.md) |
