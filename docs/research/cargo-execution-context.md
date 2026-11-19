@@ -106,6 +106,29 @@ differences. This preserves existing check grouping and avoids adding an invocat
 setting or a directory-dependent fallback. Member-cwd remains the alternative when honoring
 member-local configuration is more important than a shared workspace environment.
 
+## Registration alternatives for an owner-root policy
+
+External-member support is required. The input locator remains a design decision; neither
+alternative should reject a package because its manifest is outside the workspace tree.
+
+| Locator | Implementation | Tradeoff |
+| --- | --- | --- |
+| Package manifest | Discover the owner, then reload metadata/configuration and execute from that root | Retains the previously discussed input, but needs a discovery/bootstrap rule before the owner's compiler is available |
+| Workspace directory plus package name | Select the workspace environment first, load metadata there, then resolve a workspace member by name | Repeats the directory in registrations and package renames require configuration updates, but closely follows the existing implementation |
+
+**Proposed simplification, pending a user decision:** use a workspace path and package name
+directly on each Firmware, without introducing a named Workspace registry. Canonicalize the
+workspace path, run metadata from it, require its resolved `workspace_root` to match, and
+select the requested package from `workspace_members`. Resolve its manifest and binary from
+that metadata. Keep package membership validation separate from path containment.
+
+This moves today's BSP workspace path into Firmware and keeps the existing workspace-first
+Cargo launch path. Build/MCU checks use that workspace and Platform; independent host checks
+use the checked package's owning workspace. The package's own Cargo manifest remains
+responsible for a valid `package.workspace` declaration when Cargo needs one. Metadata already
+exposes the necessary roots, member IDs and package manifest paths.
+[Cargo metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)
+
 Caller cwd sacrifices invocation-location independence. Fixed project-root cwd is deterministic
 but gives unrelated external packages the project's Cargo configuration and toolchain context.
 

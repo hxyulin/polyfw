@@ -11,6 +11,10 @@ workspaces; polyfw has no separately named workspace registry. A platform can de
 board model or an MCU type and can be shared across workspaces. Board refers to physical
 hardware.
 
+Support firmware packages that are members of a workspace but physically outside its
+directory tree. Cargo's workspace membership and canonical package identity determine
+ownership; physical containment beneath the workspace root is not a membership test.
+
 The previous Board and BSP concepts mixed software selection, hardware identity and
 workspace ownership: two programs for one physical board required two Board entries, while
 several BSP entries could point to the same Cargo workspace. Separating these identities
