@@ -8,8 +8,12 @@ help:
 schema:
     cargo run --locked -- schema --output polyfw.schema.json
 
-ci:
+check:
     cargo fmt --check
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
     cargo build --locked --release
+
+fix:
+    cargo fmt
+    cargo clippy --locked --all-targets --fix --allow-dirty --allow-staged
