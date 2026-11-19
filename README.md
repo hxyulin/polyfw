@@ -7,7 +7,24 @@ the command contract and implementation.
 
 ## Install and start
 
-This first version is built from source. From a checkout of this repository:
+For a published version, install a prebuilt binary with
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+
+```sh
+cargo binstall polyfw
+```
+
+Or compile the crate from crates.io:
+
+```sh
+cargo install polyfw --locked
+```
+
+[GitHub Releases](https://github.com/inaku-Gyan/polyfw/releases) provide Linux GNU and macOS
+archives for x86_64/aarch64, a Windows x86_64 MSVC ZIP, and `SHA256SUMS`. Each archive contains
+the binary, README and license. Extract it and put the binary on `PATH`.
+
+Until the first version is published, or to install a development checkout:
 
 ```sh
 cargo install --path . --locked
@@ -19,7 +36,9 @@ installs rustfmt and Clippy. Operating on firmware requires Cargo and rustup, wi
 embedded target, rustfmt and Clippy needed by that project's commands. Hardware commands use an
 independently installed [probe-rs](https://probe.rs/docs/getting-started/installation/).
 Help, version and schema output require none of these external tools; `probes` needs only probe-rs.
-The first version is tested on Linux. crates.io and GitHub Releases distribution is planned.
+The release workflow builds and smoke-tests Linux, macOS and Windows binaries before publishing.
+For an explicit prerelease, use `cargo install polyfw --locked --version 0.2.0-rc.1` or
+`cargo binstall polyfw --version 0.2.0-rc.1`; the unversioned commands select stable releases.
 
 Every Cargo child selects its compiler from the workspace it operates on. polyfw clears inherited
 `RUSTUP_TOOLCHAIN`, including an outer `cargo +VERSION` or environment override, so the tool's
@@ -351,10 +370,12 @@ the temporary file on failure or unwind and is dismissed after a successful rena
 
 ```sh
 cargo run --locked -- --project-root /absolute/project info
-just ci
+rustup target add thumbv7em-none-eabihf
+just check
 ```
 
-`just ci` checks formatting, Clippy with warnings denied, host tests and a release build.
+`just check` checks formatting, Clippy with warnings denied, host tests and a release build.
+The embedded target is needed by test fixtures that run MCU Clippy.
 After changing the configuration types, run `just schema` and commit the regenerated
 `polyfw.schema.json`. Tests cover project/toolchain isolation, Cargo scopes, command arguments,
 selection rollback, disabled editor generation and project-free commands. Probe CLI tests use
@@ -366,6 +387,9 @@ current run. New commits cancel older runs for the same ref.
 
 Dependabot checks Cargo dependencies and GitHub Actions every Monday at 09:00 Asia/Shanghai.
 Minor and patch updates are grouped per ecosystem; major updates get individual pull requests.
+
+See [releasing](docs/releasing.md) for version preparation, the local first crates.io publish,
+OIDC setup, release tags and recovery after a partial publication.
 
 See [migration](docs/migration.md) for adapting an existing xtask project.
 

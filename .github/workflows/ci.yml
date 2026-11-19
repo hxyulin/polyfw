@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches:
       - main
@@ -17,7 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A reusable CI run must not share the caller's release concurrency group.
+  group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,6 +38,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache: false
+          target: thumbv7em-none-eabihf
           # Override the action's default deny: fixtures emit unused-dependency warnings.
           # The justfile's Clippy step still enforces -D warnings for our code.
           build-warnings: warn
@@ -45,3 +48,6 @@ jobs:
           tool: just@1.58.0
 
       - run: just check
+
+      - name: Test release automation
+        run: node --test .github/scripts/release.test.mjs

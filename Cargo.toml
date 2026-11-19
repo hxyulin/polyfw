@@ -9,6 +9,15 @@ repository = "https://github.com/inaku-Gyan/polyfw"
 readme = "README.md"
 keywords = ["embedded", "firmware", "probe-rs", "cargo"]
 categories = ["command-line-utilities", "development-tools::build-utils", "embedded"]
+exclude = [".github/", "docs/", "dist/"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [dependencies]
 cargo-config2 = "0.1.45"

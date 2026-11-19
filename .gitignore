@@ -1,3 +1,4 @@
 /target/
+/dist/
 /.polyfw-state/
 /.vscode/launch.json

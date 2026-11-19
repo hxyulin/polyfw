@@ -1,0 +1,233 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      commit: ${{ steps.tag.outputs.commit }}
+      matrix: ${{ steps.tag.outputs.matrix }}
+      rust_toolchain: ${{ steps.tag.outputs.rust_toolchain }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache: false
+          build-warnings: warn
+      - name: Validate tag, version and main ancestry
+        id: tag
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('validate', { github, context, core });
+
+  verify:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    needs: [validate, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+    outputs:
+      checksum: ${{ steps.crate.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache: false
+          build-warnings: warn
+      - name: Verify the packaged crate without publishing
+        run: cargo publish --dry-run --locked
+      - name: Record verified crate checksum
+        id: crate
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('crate-checksum', { github, context, core });
+
+  build:
+    needs: [validate, verify]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_TARGET: ${{ matrix.target }}
+      RUST_TOOLCHAIN_VERSION: ${{ needs.validate.outputs.rust_toolchain }}
+      MANYLINUX_IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+
+      # Keep Node-based actions on the host; their runtime needs newer glibc.
+      - name: Build and smoke-test Linux on glibc 2.17
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --volume "$GITHUB_WORKSPACE:/work" --workdir /work \
+            --env CARGO_HOME=/tmp/polyfw-cargo --env RUSTUP_HOME=/tmp/polyfw-rustup \
+            --env RELEASE_TARGET --env RUST_TOOLCHAIN_VERSION \
+            "$MANYLINUX_IMAGE" /bin/bash -euo pipefail -c '
+              curl --fail --silent --show-error --location https://sh.rustup.rs --output /tmp/rustup-init.sh
+              sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN_VERSION" --no-modify-path
+              export PATH="$CARGO_HOME/bin:$PATH"
+              cargo build --release --locked --target "$RELEASE_TARGET"
+              "target/$RELEASE_TARGET/release/polyfw" --version
+              "target/$RELEASE_TARGET/release/polyfw" --help
+              "target/$RELEASE_TARGET/release/polyfw" schema > /tmp/polyfw-schema.json
+            '
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        if: runner.os != 'Linux'
+        with:
+          cache: false
+          build-warnings: warn
+          target: ${{ matrix.target }}
+      - name: Build native binary
+        if: runner.os != 'Linux'
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Check binary and create archive
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('package', { github, context, core });
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare-release:
+    needs: [validate, package, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      CRATE_CHECKSUM: ${{ needs.package.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+      - name: Prepare draft and verify every asset
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('prepare', { github, context, core });
+
+  publish-crate:
+    needs: [validate, package, prepare-release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      CRATE_CHECKSUM: ${{ needs.package.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - name: Reuse an identical existing crate, including the local first publish
+        id: crate
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('check-crate', { github, context, core });
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        if: steps.crate.outputs.exists != 'true'
+        with:
+          cache: false
+          build-warnings: warn
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.crate.outputs.exists != 'true'
+        id: auth
+      - name: Publish verified source
+        if: steps.crate.outputs.exists != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked
+      - name: Confirm published crate checksum
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('verify-crate', { github, context, core });
+
+  publish-release:
+    needs: [validate, package, publish-crate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      CRATE_CHECKSUM: ${{ needs.package.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - name: Verify crate and assets, then publish the GitHub Release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const release = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/release.mjs`).href);
+            await release.run('finish', { github, context, core });
