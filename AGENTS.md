@@ -11,6 +11,21 @@
 - Before changing versions, packaging, release scripts/workflows or publishing, read
   [Releasing](docs/releasing.md).
 
+## Common development commands
+
+Run from the repository root. See [Development](docs/development.md#set-up-a-checkout) for
+toolchain and fixture setup.
+
+| Command | Purpose |
+| --- | --- |
+| `just check` | Check formatting, Clippy, tests and the release build |
+| `just fix` | Rewrite sources with formatting and Clippy fixes; review the diff |
+| `just schema` | Regenerate `polyfw.schema.json` after model/schema or package-version changes; commit the result |
+| `cargo test --locked cli::tests` | Run focused parser tests; replace the test-name filter as needed |
+| `cargo test --locked --test standalone` | Run project-free CLI and external-tool boundary tests |
+| `cargo run --locked -- help init` | Inspect a subcommand's help; replace `init` as needed |
+| `cargo run --locked -- --project-root /path/to/firmware-demos info` | Inspect a consuming project with the development binary |
+
 ## Preserve repository invariants
 
 - Construct Cargo children through `runner::workspace_cargo` / `workspace_command`; run them
@@ -22,8 +37,7 @@
   only probe-rs. Preserve the lighter loading paths for selection clearing and reset.
 - Keep selection/editor rollback and disabled-editor behavior consistent with the state-write
   contract in Design. A later action failure retains an already successful selection save.
-- Edit configuration Schema descriptions in `src/model.rs`; run `just schema` and commit
-  `polyfw.schema.json`. CLI help comes from `src/cli.rs`.
+- Edit configuration Schema descriptions in `src/model.rs`; CLI help comes from `src/cli.rs`.
 
 ## Complete the change
 
