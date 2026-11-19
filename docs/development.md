@@ -25,12 +25,16 @@ features or updating dependencies.
 
 ## Run against a consuming project
 
+`just run` runs the development CLI with locked dependencies. Pass polyfw arguments directly
+after the recipe name; their boundaries are preserved, including quoted paths with spaces.
+With no arguments, it prints CLI help.
+
 The polyfw repository has no firmware registry of its own. Point the development binary at an
 existing consumer:
 
 ```sh
-cargo run --locked -- --project-root /path/to/firmware-demos info
-cargo run --locked -- --project-root /path/to/firmware-demos verify --all-boards
+just run --project-root /path/to/firmware-demos info
+just run --project-root /path/to/firmware-demos verify --all-boards
 ```
 
 Or install this checkout with `cargo install --path . --locked`. Cargo children launched by polyfw
@@ -62,7 +66,7 @@ Each description has one source:
 
 | Surface | Source to edit | Follow-up |
 | --- | --- | --- |
-| CLI help | Documentation comments and help strings in `src/cli.rs` | Inspect `cargo run --locked -- help COMMAND` |
+| CLI help | Documentation comments and help strings in `src/cli.rs` | Inspect `just run help COMMAND` |
 | Configuration Schema | Model comments and schema annotations in `src/model.rs` | Run `just schema` and commit `polyfw.schema.json` |
 | Installation and navigation | `README.md` | Keep online links usable in source, crate and binary archives |
 | Configuration rules | `docs/configuration.md` | Match model defaults, Cargo requirements and validation |

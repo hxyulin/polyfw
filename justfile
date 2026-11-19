@@ -5,8 +5,12 @@ set no-exit-message
 help:
     just --list
 
+[positional-arguments]
+run *args:
+    cargo run --locked -- "$@"
+
 schema:
-    cargo run --locked -- schema --output polyfw.schema.json
+    just run schema --output polyfw.schema.json
 
 check:
     cargo fmt --check

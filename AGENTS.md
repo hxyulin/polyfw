@@ -23,8 +23,8 @@ toolchain and fixture setup.
 | `just schema` | Regenerate `polyfw.schema.json` after model/schema or package-version changes; commit the result |
 | `cargo test --locked cli::tests` | Run focused parser tests; replace the test-name filter as needed |
 | `cargo test --locked --test standalone` | Run project-free CLI and external-tool boundary tests |
-| `cargo run --locked -- help init` | Inspect a subcommand's help; replace `init` as needed |
-| `cargo run --locked -- --project-root /path/to/firmware-demos info` | Inspect a consuming project with the development binary |
+| `just run help init` | Inspect a subcommand's help; replace `init` as needed |
+| `just run --project-root /path/to/firmware-demos info` | Inspect a consuming project with the development binary |
 
 ## Preserve repository invariants
 
