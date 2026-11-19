@@ -1,4 +1,17 @@
+# --- OS ---------------------
+.DS_Store
+Thumbs.db
+*Zone.Identifier
+
+# --- Artifacts --------------
 /target/
 /dist/
 /.polyfw-state/
+
+# --- Editors ----------------
 /.vscode/launch.json
+*.swp
+*.swo
+
+/.worktrees/
+/.tmp/
