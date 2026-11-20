@@ -22,3 +22,9 @@ check:
 fix:
     cargo fmt
     cargo clippy --locked --all-targets --fix --allow-dirty --allow-staged
+
+# Clean build artifacts and remove example build directories.
+clean:
+    cargo clean
+    rm -r examples/*/target
+    rm -r examples/*/.polyfw-state
