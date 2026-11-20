@@ -166,7 +166,7 @@ files. Cargo output directories are configured independently. Customize the gene
 against the same platform:
 
 ```toml
-#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.2.0/polyfw.schema.json
+#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v0.2.0/assets/polyfw.schema.json
 
 config-version = "0.2.0"
 min-polyfw-version = "0.2.0"

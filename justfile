@@ -10,7 +10,7 @@ run *args:
     cargo run --locked -- "$@"
 
 schema:
-    just run schema --output polyfw.schema.json
+    just run schema --output assets/polyfw.schema.json
 
 check:
     cargo fmt --check

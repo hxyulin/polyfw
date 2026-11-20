@@ -948,7 +948,7 @@ mod tests {
         assert_eq!(
             schema["$id"],
             format!(
-                "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v{}/polyfw.schema.json",
+                "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v{}/assets/polyfw.schema.json",
                 env!("CARGO_PKG_VERSION")
             )
         );
@@ -968,7 +968,7 @@ mod tests {
     #[test]
     fn the_registry_schema_matches_the_generated_schema() {
         assert_eq!(
-            include_str!("../polyfw.schema.json"),
+            include_str!("../assets/polyfw.schema.json"),
             schema_source().unwrap(),
             "registry schema is stale; run just schema"
         );

@@ -30,41 +30,20 @@ pub(crate) fn run(root: &Path, ui: &Ui) -> Result<()> {
 }
 
 fn template() -> String {
+    let source = format!(
+        include_str!("../assets/polyfw.toml"),
+        CLI_VERSION = CLI_VERSION,
+        MIN_REQUIRED_CLI_VERSION = MIN_REQUIRED_CLI_VERSION,
+    );
+    let (header, body) = source
+        .split_once('\n')
+        .expect("initialization template must contain a schema header and a body");
+    assert!(
+        header.starts_with("#:schema "),
+        "initialization template must start with a schema directive"
+    );
     format!(
-        r#"#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v{CLI_VERSION}/polyfw.schema.json
-
-config-version = "{CLI_VERSION}"
-min-polyfw-version = "{MIN_REQUIRED_CLI_VERSION}"
-
-[config]
-local-dependencies = ["./**"]
-
-[config.vscode]
-# Saving a selection replaces the entire .vscode/launch.json.
-enabled = true
-
-[platforms.your-platform]
-# Cargo commands run here; relative to this file.
-working-dir = "."
-# TODO: set the compilation target and CPU.
-target = "YOUR_TARGET"
-cpu = "YOUR_CPU"
-# Consistency checking defaults to true.
-# check-platform = false
-# Optional intermediate and final-output directory overrides:
-# build-dir = "target/build/your-platform"
-# target-dir = "target/firmware/your-firmware"
-# TODO: set the probe-rs chip name.
-chip = "YOUR_CHIP"
-
-[firmwares.your-firmware]
-description = "TODO: describe your firmware"
-platform = "your-platform"
-# TODO: set the firmware package name.
-package = "your-firmware"
-# Required when the package declares multiple binaries:
-# bin = "your-binary"
-"#
+        "#:schema https://raw.githubusercontent.com/inaku-Gyan/polyfw/v{CLI_VERSION}/assets/polyfw.schema.json\n{body}"
     )
 }
 

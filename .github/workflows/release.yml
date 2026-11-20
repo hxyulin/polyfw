@@ -42,8 +42,8 @@ jobs:
         run: |
           version=$(cargo metadata --no-deps --locked --format-version 1 | jq -r '.packages[] | select(.name == "polyfw") | .version')
           test "$RELEASE_TAG" = "v$version"
-          schema_id="https://raw.githubusercontent.com/inaku-Gyan/polyfw/v$version/polyfw.schema.json"
-          jq -e --arg id "$schema_id" '."$id" == $id' polyfw.schema.json > /dev/null
+          schema_id="https://raw.githubusercontent.com/inaku-Gyan/polyfw/v$version/assets/polyfw.schema.json"
+          jq -e --arg id "$schema_id" '."$id" == $id' assets/polyfw.schema.json > /dev/null
           test "$(sed -n '/^#:schema https:/s/^#:schema //p' docs/configuration.md)" = "$schema_id"
           commit=$(git rev-parse HEAD)
           test "$commit" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
@@ -95,7 +95,7 @@ jobs:
           test "$("$binary" --version)" = "polyfw $RELEASE_VERSION"
           "$binary" --help
           "$binary" schema > generated-schema.json
-          diff -u <(jq -S . polyfw.schema.json) <(jq -S . generated-schema.json)
+          diff -u <(jq -S . assets/polyfw.schema.json) <(jq -S . generated-schema.json)
 
           stage="polyfw-$RELEASE_TARGET"
           mkdir "$stage" dist

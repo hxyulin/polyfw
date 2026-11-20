@@ -54,8 +54,8 @@ fixtures need `thumbv7em-none-eabihf`.
    configurations need newer CLI capabilities. Retained compatibility needs representative
    fixtures; a package version bump alone does not justify either compatibility bump.
 2. Run `cargo check` to update the root package entry in `Cargo.lock`, then `just schema` to
-   regenerate `polyfw.schema.json`. Its `$id` must be
-   `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/polyfw.schema.json`, including
+   regenerate `assets/polyfw.schema.json`. Its `$id` must be
+   `https://raw.githubusercontent.com/inaku-Gyan/polyfw/v<VERSION>/assets/polyfw.schema.json`, including
    any prerelease suffix. Update the `#:schema` URL in the [configuration example](configuration.md#register-the-firmware-targets)
    to the same version. Review the diffs; an ordinary version bump does not require dependency
    upgrades or a new Rust pin. Checks reject a stale schema or example link.
@@ -115,7 +115,7 @@ assets and crates.io version; installation commands are in [README](../README.md
 
 Linux binaries are built and tested on Ubuntu 24.04; compatibility with older distributions is
 not guaranteed. Each built executable must report the expected `--version`, provide `--help` and
-emit a schema equal to the committed `polyfw.schema.json`, with the tag's version in its `$id`.
+emit a schema equal to the committed `assets/polyfw.schema.json`, with the tag's version in its `$id`.
 These smoke tests need no firmware project or hardware. The full
 Rust suite runs on Linux through reusable CI; the five-platform binary matrix does not claim
 physical probe/debugger validation.

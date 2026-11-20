@@ -31,7 +31,10 @@ fn help_version_and_schema_work_without_a_project_or_rust_tools() {
         .output()
         .unwrap();
     succeeded(&output);
-    assert_eq!(output.stdout, include_bytes!("../polyfw.schema.json"));
+    assert_eq!(
+        output.stdout,
+        include_bytes!("../assets/polyfw.schema.json")
+    );
     let output = fixture
         .command()
         .args(["schema", "--output", "polyfw.schema.json"])
@@ -41,7 +44,7 @@ fn help_version_and_schema_work_without_a_project_or_rust_tools() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         fs::read(fixture.root.join("polyfw.schema.json")).unwrap(),
-        include_bytes!("../polyfw.schema.json")
+        include_bytes!("../assets/polyfw.schema.json")
     );
 }
 

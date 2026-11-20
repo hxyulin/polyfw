@@ -47,7 +47,7 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/main.rs`, `src/cli.rs` | Project-free dispatch, loading boundaries and CLI arguments/help |
 | `src/model.rs`, `src/registry.rs` | Configuration/schema model, root discovery, validation and saved state |
 | `src/config_version.rs` | Version preflight, SemVer precedence and release-maintained compatibility baselines |
-| `src/init.rs` | Configuration template and exclusive creation without project loading |
+| `src/init.rs`, `assets/polyfw.toml` | Configuration template and exclusive creation without project loading |
 | `src/cargo_config.rs` | Optional effective Cargo target/CPU consistency checking |
 | `src/local_dependencies.rs`, `src/scope.rs` | Canonical directory matching and host/MCU package scopes |
 | `src/commands.rs` | Firmware/profile resolution and ordered Cargo stages |
@@ -56,6 +56,10 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/info.rs`, `src/ui.rs` | Read-only reports and terminal output |
 | `tests/project_root.rs`, `tests/standalone.rs` | Executable-level project isolation and external-tool boundaries |
 | `.github/workflows/release.yml` | Tag validation, native binary archives and publication |
+
+Edit the initialization template in `assets/polyfw.toml`. Its schema directive points to
+`polyfw.schema.json` in the same directory; `init` replaces it with the matching release URL
+when generating a consumer configuration.
 
 Unit tests live beside their implementation. CLI parser tests check argument combinations;
 subprocess fixtures check commands without accessing hardware.
@@ -67,7 +71,7 @@ Each description has one source:
 | Surface | Source to edit | Follow-up |
 | --- | --- | --- |
 | CLI help | Documentation comments and help strings in `src/cli.rs` | Inspect `just run help COMMAND` |
-| Configuration Schema | Model comments and schema annotations in `src/model.rs` | Run `just schema` and commit `polyfw.schema.json` |
+| Configuration Schema | Model comments and schema annotations in `src/model.rs` | Run `just schema` and commit `assets/polyfw.schema.json` |
 | Installation and navigation | `README.md` | Keep relative guide links usable in source, crate and binary archives |
 | Configuration rules | `docs/configuration.md` | Match model defaults, Cargo requirements and validation |
 | User operations and JSON output | `docs/usage.md` | Match CLI parsing, command behavior and serialization |

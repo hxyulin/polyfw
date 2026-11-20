@@ -16,7 +16,7 @@ const REGISTRY_NAME_PATTERN: &str = "^[a-z][a-z0-9]*(-[a-z0-9]+)*$";
     "$id" = concat!(
         "https://raw.githubusercontent.com/inaku-Gyan/polyfw/v",
         env!("CARGO_PKG_VERSION"),
-        "/polyfw.schema.json"
+        "/assets/polyfw.schema.json"
     )
 ))]
 pub(crate) struct Registry {

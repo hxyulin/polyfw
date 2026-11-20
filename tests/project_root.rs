@@ -192,7 +192,7 @@ fn schema_is_printed_or_written_without_loading_the_operating_project() {
     succeeded(&output);
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        include_str!("../polyfw.schema.json")
+        include_str!("../assets/polyfw.schema.json")
     );
     assert!(!root.join("polyfw.schema.json").exists());
     let output = Command::new(env!("CARGO_BIN_EXE_polyfw"))
@@ -204,7 +204,7 @@ fn schema_is_printed_or_written_without_loading_the_operating_project() {
     assert!(output.stdout.is_empty());
     assert_eq!(
         fs::read_to_string(root.join("schema files/project.json")).unwrap(),
-        include_str!("../polyfw.schema.json")
+        include_str!("../assets/polyfw.schema.json")
     );
     fs::remove_dir_all(root).unwrap();
 }
