@@ -87,6 +87,7 @@ Each description has one source:
 | User operations and JSON output | `docs/usage.md` | Match CLI parsing, command behavior and serialization |
 | Architecture and invariants | `docs/design.md` | Update alongside changes to ownership, algorithms or boundaries |
 | Contributor workflow | This document | Match recipes and automation |
+| Example projects | `examples/README.md` and each project's README | Keep shared commands in the index and project structure in each README |
 | Publication procedure | `docs/releasing.md` | Match the tagged workflow |
 | Agent instructions | `AGENTS.md` | Keep repository-specific rules and conditional document pointers concise |
 
@@ -125,12 +126,29 @@ Ordinary fixture builds may emit unused-dependency warnings. CI explicitly allow
 warnings; the repository's Clippy command still uses `-D warnings`. Hardware command and debugger
 fixtures establish generated arguments/settings, not physical device behavior.
 
-`cargo test --locked --test examples` copies the checked-in ARM examples to temporary directories
-and exercises real MCU builds, host library tests, selection, external workspace members and
-dependency scopes. The tests check reported ELF paths and ARM headers, including
-separate binaries in one package. Cargo fetches locked dependencies as needed and inherits the
-caller's network settings. With dependencies cached, set `CARGO_NET_OFFLINE=true` for an offline
-run. Keep each example workspace's Rust pin aligned with the repository pin.
+## Maintain the examples
+
+Each example directory is a self-contained consuming project. Copy the whole project directory
+when trying it outside this checkout. Every Cargo workspace includes a committed lockfile and
+Rust pin; keep each example workspace's pin aligned with the repository pin.
+
+After [setting up the checkout](#set-up-a-checkout), run the example integration tests from the
+repository root:
+
+```sh
+cargo test --locked --test examples
+```
+
+`tests/examples.rs` copies the checked-in projects into temporary directories and invokes the
+built polyfw executable. It exercises real MCU builds, host library tests, selection, external
+workspace members and dependency scopes. The tests check reported artifact paths, platform
+CPU/chip values and linked 32-bit ARM ELF executables with Thumb entry points in flash, including
+independent builds of a package's two binaries. Failing host tests introduced in the copies check
+that polyfw includes reachable shared dependencies and excludes unrelated packages.
+
+Cargo fetches locked dependencies as needed using each workspace's Rust pin and inherits the
+caller's network settings. With dependencies cached and the target installed, set
+`CARGO_NET_OFFLINE=true` for an offline run. These tests are included in `just check`.
 
 ## Validate changes
 
