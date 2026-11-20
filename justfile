@@ -18,6 +18,11 @@ check:
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
 
+# Run example integration tests; pass test-name filters and test-runner options directly.
+[positional-arguments]
+test-examples *args:
+    cargo test --locked --test examples -- "$@"
+
 # Format Rust sources and apply Clippy fixes; review the resulting diff.
 fix:
     cargo fmt
@@ -26,6 +31,6 @@ fix:
 # Clean build artifacts and remove example build directories.
 clean:
     cargo clean
-    rm -r dist
-    rm -r examples/*/target
-    rm -r examples/*/.polyfw-state
+    rm -rf dist
+    rm -rf examples/*/target
+    rm -rf examples/*/.polyfw-state

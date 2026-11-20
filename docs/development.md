@@ -139,8 +139,11 @@ After [setting up the checkout](#set-up-a-checkout), run the example integration
 repository root:
 
 ```sh
-cargo test --locked --test examples
+just test-examples
 ```
+
+Pass test-name filters and test-runner options directly, for example
+`just test-examples minimal --nocapture`. The recipe supplies Cargo's `--` separator.
 
 `tests/examples.rs` copies the checked-in projects into temporary directories and invokes the
 built polyfw executable. It exercises real MCU builds, host library tests, selection, external
