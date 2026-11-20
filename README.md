@@ -18,7 +18,7 @@ For a published stable version, download a prebuilt binary with
 cargo binstall polyfw
 ```
 
-Or build from crates.io with Rust 1.100 or newer:
+Or build from crates.io:
 
 ```sh
 cargo install polyfw --locked

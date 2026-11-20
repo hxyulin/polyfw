@@ -1,6 +1,3 @@
-set quiet
-set no-exit-message
-
 # List repository recipes (default).
 [default]
 help:
@@ -15,12 +12,11 @@ run *args:
 schema:
     just run schema --output assets/polyfw.schema.json
 
-# Check formatting, Clippy and tests, then build the release executable.
+# Check formatting, Clippy and tests.
 check:
     cargo fmt --check
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
-    cargo build --locked --release
 
 # Format Rust sources and apply Clippy fixes; review the resulting diff.
 fix:

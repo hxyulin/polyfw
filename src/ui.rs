@@ -148,14 +148,7 @@ impl Ui {
             .collect::<Vec<_>>();
         self.section("platforms", Some(platform_rows.len()), false);
         self.print_table(
-            &[
-                "name",
-                "firmwares",
-                "target",
-                "declared CPU",
-                "chip",
-                "description",
-            ],
+            &["name", "firmwares", "target", "CPU", "chip", "description"],
             &platform_rows,
         );
 
