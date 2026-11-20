@@ -335,7 +335,7 @@ mod tests {
                     id: "test-firmware".into(),
                     profile: None,
                     firmware: Firmware {
-                        description: "fixture".into(),
+                        description: Some("fixture".into()),
                         platform: "test-platform".into(),
                         package: "test-firmware".into(),
                         bin: Some("robot-image".into()),

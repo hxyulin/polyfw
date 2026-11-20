@@ -33,7 +33,7 @@ It writes only polyfw.toml, using release constants, and needs no Cargo, state o
 Loading has two stages:
 
 1. Configuration preflight and strict model parsing validate versions, IDs, platform references,
-   required effective working directories, directory strings and dependency patterns.
+   directory strings and dependency patterns.
 2. Cargo resolution independently resolves each Firmware's inherited directories, invokes metadata
    there, discovers workspace membership/binaries, and records Cargo's effective output paths.
 
@@ -70,6 +70,7 @@ The latter records invocation cwd, discovered owner, resolved artifact target, e
 and optional intermediate directories, and explicit directory overrides. Omitted output overrides
 leave inherited Cargo environment/configuration/defaults untouched. Relative directory inputs
 start beside polyfw.toml, independently of each other; absolute and parent paths are supported.
+An omitted working-dir at both levels defaults to that project directory.
 
 Target-side commands explicitly pass the Platform target. CPU injection appends to the inherited
 target-specific environment flags; Cargo merges string/array settings and applies its native

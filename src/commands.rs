@@ -1331,7 +1331,7 @@ mod tests {
                 firmwares: BTreeMap::from([(
                     "test-firmware".into(),
                     Firmware {
-                        description: "test firmware".into(),
+                        description: Some("test firmware".into()),
                         platform: "test-platform".into(),
                         package: "test-firmware".into(),
                         bin: None,

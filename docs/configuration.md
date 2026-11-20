@@ -147,10 +147,12 @@ ancestors, so it can create a separate configuration inside an existing project'
 Any existing `polyfw.toml` entry, including a directory or dangling symlink, is an error; move or
 remove it yourself before generating a replacement. There is no overwrite or merge mode.
 
-The template contains one platform and one firmware, TODO values for target, CPU, chip, description
-and firmware package, and the default checking/editor settings. Edit those values to match your
-project; set `bin` when the package has multiple binaries. The schema link and `config-version`
-use the running CLI's release version; `min-polyfw-version` uses its conservative
+The template contains one platform and one firmware, TODO values for target, CPU, chip
+and firmware package, and the default checking/editor settings. The description examples may be
+edited or omitted, and the platform working directory defaults to `.` beside `polyfw.toml`.
+Edit the TODO values to match your project; set `bin` when the package has multiple binaries.
+The schema link and `config-version` use the running CLI's release version;
+`min-polyfw-version` uses its conservative
 [authoring minimum](#configuration-compatibility).
 
 The command is non-interactive, creates only `polyfw.toml` and needs no Cargo, Rust or network
@@ -178,6 +180,7 @@ local-dependencies = ["./**"]
 enabled = true
 
 [platforms.demo-board]
+description = "Shared demo board"
 target = "thumbv7em-none-eabihf"
 cpu = "cortex-m7"
 chip = "STM32H723VGTx"
@@ -210,14 +213,15 @@ At least one platform and one firmware are required.
 | --- | --- | --- |
 | `config-version` | Yes | Full polyfw release version whose configuration contract the file follows |
 | `min-polyfw-version` | Yes | Minimum CLI release expected to interpret and execute this configuration correctly |
+| `platforms.ID.description` | No | Label shown in platform information; independent of firmware descriptions |
 | `platforms.ID.target` | Yes | Explicit compilation target, `host-tuple` or custom JSON target argument |
 | `platforms.ID.cpu` | Yes | Declared CPU supplied through target-specific rustflags |
 | `platforms.ID.chip` | Yes | probe-rs chip name used by hardware commands and VS Code |
-| `firmwares.ID.description` | Yes | Label shown in firmware lists and the selector |
+| `firmwares.ID.description` | No | Label shown in firmware lists and the selector |
 | `firmwares.ID.platform` | Yes | ID of a platform in the same registry |
 | `firmwares.ID.package` | Yes | Firmware package name in the discovered Cargo workspace |
 | `firmwares.ID.bin` | No | Binary target name; omit only if the package declares exactly one binary |
-| `platforms.ID.working-dir`, `firmwares.ID.working-dir` | Effective value required | Cargo invocation directory; firmware overrides platform |
+| `platforms.ID.working-dir`, `firmwares.ID.working-dir` | No | Cargo invocation directory; firmware overrides platform, default `"."` beside `polyfw.toml` |
 | `platforms.ID.build-dir`, `firmwares.ID.build-dir` | No | Intermediate/cache directory override; requires Cargo 1.91+ when explicitly supplied |
 | `platforms.ID.target-dir`, `firmwares.ID.target-dir` | No | Final-output directory override |
 | `platforms.ID.check-platform`, `firmwares.ID.check-platform` | No | Effective target/CPU consistency check; firmware overrides platform, default `true` |
@@ -227,11 +231,18 @@ At least one platform and one firmware are required.
 For an explicit binary, add `bin = "led-demo"` to `[firmwares.led-demo]`. Without `bin`, polyfw
 infers the sole binary for ELF lookup but leaves Cargo's default build targets intact.
 It counts all declared binaries, including feature-gated targets, independently of `default-run`.
-Directory fields inherit independently. Firmware values override Platform values; omission at both
-levels preserves Cargo's native directory configuration, environment and defaults for `build-dir`
-and `target-dir`. All three relative directory values start beside `polyfw.toml`, even when inherited;
-`working-dir` does not rebase either output directory. Absolute paths and `..` can refer outside the
-polyfw project. The working directory must exist; Cargo manages creation of output directories.
+
+Descriptions are independent: omitting a firmware description does not inherit its platform's.
+Omitted descriptions stay absent; supplied strings, including empty or whitespace-only strings,
+are preserved.
+
+Directory fields inherit independently. Firmware values override Platform values. Omitting
+`working-dir` at both levels uses `"."` beside `polyfw.toml`; an explicit empty or whitespace-only
+directory is an error. Omitting `build-dir` and `target-dir` at both levels preserves Cargo's native
+directory configuration, environment and defaults. All three relative directory values start
+beside `polyfw.toml`, even when inherited; `working-dir` does not rebase either output directory.
+Absolute paths and `..` can refer outside the polyfw project. The working directory must exist;
+Cargo manages creation of output directories.
 
 A Platform is independent of workspace ownership. Its required target and CPU do not guarantee
 complete cache equivalence: Cargo fingerprints also account for toolchains, flags, features and

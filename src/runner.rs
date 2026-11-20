@@ -245,7 +245,7 @@ mod tests {
             id: "controller".into(),
             profile: None,
             firmware: Firmware {
-                description: "test firmware".into(),
+                description: Some("test firmware".into()),
                 platform: "firmware-family".into(),
                 package: "firmware-package".into(),
                 bin: None,

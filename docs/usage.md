@@ -110,6 +110,11 @@ presence. A different saved profile adds another artifact column. Details show o
 package, binary, workspace, target, CPU, chip, absolute ELF paths and check dependencies.
 `polyfw info --firmware` opens the picker for this query without saving the choice.
 
+Platform descriptions appear in the platform overview and the firmware details. Firmware lists,
+details and pickers use the firmware's own description. Missing descriptions leave list cells blank
+and omit detail rows and picker description segments. See
+[configuration](configuration.md#register-the-firmware-targets) for the optional description fields.
+
 `info` does not build, connect to hardware, change selection or write editor files. A stale firmware
 in otherwise valid saved state is reported without blocking the query. Malformed state still
 fails. An ELF marked `present` may be older than the source or differ from the running image.
@@ -120,9 +125,9 @@ The JSON view contains:
 | --- | --- |
 | `repository_root` | Absolute operating project root |
 | `saved_selection` | Saved `firmware` and optional `profile`; omitted if no state exists |
-| `platforms` | Map of platforms referenced by the reported firmwares, with declared `target`, `cpu`, `chip` and `registered_firmwares` |
+| `platforms` | Map of platforms referenced by the reported firmwares, with optional `description`, declared `target`, `cpu`, `chip` and `registered_firmwares` |
 | `firmwares` | Map of firmwares, limited to the requested firmware when using `--firmware` |
-| `firmwares[ID].description`, `.platform`, `.package`, `.bin` | Registry values and the resolved binary name |
+| `firmwares[ID].description`, `.platform`, `.package`, `.bin` | Optional description, registry values and the resolved binary name |
 | `firmwares[ID].workspace`, `.working_dir` | Discovered Cargo workspace and actual invocation directory |
 | `firmwares[ID].target_dir`, `.build_dir` | Effective final/intermediate directories; `build_dir` is omitted if Cargo does not report it and no explicit override supplies it |
 | `firmwares[ID].target`, `.check_platform` | Resolved artifact target name and inherited consistency-check policy |
@@ -133,7 +138,8 @@ Workspace and artifact paths are absolute. Dependency manifest paths are project
 including `../` for external packages, or absolute when they cannot share a filesystem prefix.
 Dependencies are sorted by package name and path; their `target` is `embedded` or `host`.
 `cpu` is the required declaration, including when native flags override it. Missing saved
-selection, saved profile and overview dependency details are omitted; `false` and empty arrays are retained.
+selection, saved profile, descriptions and overview dependency details are omitted; `false`, empty
+arrays and explicitly supplied description strings, including empty strings, are retained.
 
 JSON goes to stdout; interactive prompts go to stderr. Name the firmware in scripts so terminal
 availability and picker cancellation cannot change the result.

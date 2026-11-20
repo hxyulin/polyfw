@@ -113,6 +113,107 @@ fn succeed(output: Output) -> Output {
 }
 
 #[test]
+fn omitted_working_directories_use_the_configuration_directory_and_allow_firmware_overrides() {
+    let fixture = Project::new("working-defaults");
+    let source = fs::read_to_string(fixture.project.join("polyfw.toml")).unwrap();
+    let mut config: toml::Value = toml::from_str(&source).unwrap();
+    config["platforms"]["demo-board"]
+        .as_table_mut()
+        .unwrap()
+        .remove("working-dir");
+    let path = fixture.workspace.join("polyfw.toml");
+    let info = || {
+        let output = succeed(
+            fixture
+                .command(&["info", "--json", "--project-root"])
+                .arg(&fixture.workspace)
+                .output()
+                .unwrap(),
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    for firmware in info()["firmwares"].as_object().unwrap().values() {
+        assert_eq!(
+            Path::new(firmware["working_dir"].as_str().unwrap()),
+            fixture.workspace
+        );
+    }
+
+    config["firmwares"]["led-demo"]
+        .as_table_mut()
+        .unwrap()
+        .insert("working-dir".into(), "led-demo".into());
+    fs::write(path, toml::to_string(&config).unwrap()).unwrap();
+    let info = info();
+    for (id, directory) in [
+        ("led-demo", fixture.workspace.join("led-demo")),
+        ("buzzer-demo", fixture.workspace.clone()),
+    ] {
+        assert_eq!(
+            Path::new(info["firmwares"][id]["working_dir"].as_str().unwrap()),
+            directory
+        );
+        assert_eq!(
+            Path::new(info["firmwares"][id]["workspace"].as_str().unwrap()),
+            fixture.workspace
+        );
+    }
+}
+
+#[test]
+fn info_displays_platform_descriptions_and_omits_missing_firmware_description_rows() {
+    let fixture = Project::new("labels");
+    fixture.config("description = \"Shared demo board\"", "", "");
+    let path = fixture.project.join("polyfw.toml");
+    let source = fs::read_to_string(&path).unwrap();
+    let mut config: toml::Value = toml::from_str(&source).unwrap();
+    for id in ["led-demo", "buzzer-demo"] {
+        config["firmwares"][id]
+            .as_table_mut()
+            .unwrap()
+            .remove("description");
+    }
+    fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let info = fixture.info();
+    assert_eq!(
+        info["platforms"]["demo-board"]["description"],
+        "Shared demo board"
+    );
+    for firmware in info["firmwares"].as_object().unwrap().values() {
+        assert!(firmware.get("description").is_none());
+    }
+    for args in [vec!["info"], vec!["info", "--firmware", "led-demo"]] {
+        let output = succeed(fixture.command(&args).output().unwrap());
+        let text = String::from_utf8(output.stdout).unwrap();
+        let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(compact.contains("Shareddemoboard"), "{text}");
+        if args.len() > 1 {
+            assert!(
+                !text
+                    .lines()
+                    .any(|line| line.split_whitespace().next() == Some("description")),
+                "{text}"
+            );
+        }
+    }
+
+    config["platforms"]["demo-board"]
+        .as_table_mut()
+        .unwrap()
+        .remove("description");
+    fs::write(path, toml::to_string(&config).unwrap()).unwrap();
+    let output = succeed(
+        fixture
+            .command(&["info", "--firmware", "led-demo"])
+            .output()
+            .unwrap(),
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains("description"), "{text}");
+}
+
+#[test]
 fn directory_inheritance_and_native_defaults_use_cargos_actual_workspace_and_outputs() {
     let fixture = Project::new("directories");
     let buzzer = fixture.root.join("images/buzzer");

@@ -118,8 +118,11 @@
           ]
         },
         "description": {
-          "description": "Human-readable label for firmware lists and the picker.",
-          "type": "string"
+          "description": "Optional human-readable label for firmware lists and the picker.\nOmission leaves the firmware without a description; it does not inherit the platform's.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "package": {
           "description": "Cargo package name in the workspace discovered from the effective working directory. It must declare a host-testable library\nand at least one firmware binary.",
@@ -146,7 +149,6 @@
       },
       "additionalProperties": false,
       "required": [
-        "description",
         "platform",
         "package"
       ]
@@ -177,6 +179,13 @@
           "description": "Declared target CPU. Cargo's native rustflags precedence determines its final use.",
           "type": "string"
         },
+        "description": {
+          "description": "Optional human-readable label for platform information, independent of firmware descriptions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "target": {
           "description": "Explicit Cargo compilation target, including host-tuple or a custom JSON target.",
           "type": "string"
@@ -189,11 +198,12 @@
           ]
         },
         "working-dir": {
-          "description": "Default Cargo working directory. Firmware may override it. Relative paths start\nbeside polyfw.toml; absolute paths and `..` are supported. One level must supply it.",
+          "description": "Default Cargo working directory. Firmware may override it. Defaults to \".\" beside\npolyfw.toml when omitted at both levels; absolute paths and `..` are supported.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": "."
         }
       },
       "additionalProperties": false,

@@ -258,12 +258,13 @@ impl Registry {
             )?;
         }
         for (id, firmware) in &self.firmwares {
-            let platform = self.platforms.get(&firmware.platform).ok_or_else(|| {
-                format!(
+            if !self.platforms.contains_key(&firmware.platform) {
+                return Err(format!(
                     "firmware {id} refers to unknown platform {}",
                     firmware.platform
                 )
-            })?;
+                .into());
+            }
             validate_directories(
                 id,
                 [
@@ -272,18 +273,6 @@ impl Registry {
                     &firmware.target_dir,
                 ],
             )?;
-            if firmware
-                .working_dir
-                .as_ref()
-                .or(platform.working_dir.as_ref())
-                .is_none()
-            {
-                return Err(format!(
-                    "firmware {id} needs working-dir on itself or platform {}",
-                    firmware.platform
-                )
-                .into());
-            }
         }
         Ok(())
     }
@@ -296,9 +285,9 @@ impl Registry {
                 &root.join(
                     firmware
                         .working_dir
-                        .as_ref()
-                        .or(platform.working_dir.as_ref())
-                        .expect("validated working-dir"),
+                        .as_deref()
+                        .or(platform.working_dir.as_deref())
+                        .unwrap_or("."),
                 ),
             )?;
             if !working_dir.is_dir() {
@@ -943,6 +932,57 @@ mod tests {
     }
 
     #[test]
+    fn descriptions_are_optional_and_preserve_explicit_text() {
+        for description in [None, Some(""), Some(" \t"), Some("Demo description")] {
+            let field = description
+                .map(|value| format!("description = {}\n", toml::Value::String(value.into())))
+                .unwrap_or_default();
+            let source = format!(
+                "{}[platforms.test]\n{field}target = \"host-tuple\"\ncpu = \"native\"\nchip = \"test\"\n\
+                 [firmwares.demo]\n{field}platform = \"test\"\npackage = \"demo\"\n",
+                crate::config_version::TEST_HEADER
+            );
+            let registry: Registry = toml::from_str(&source).unwrap();
+            registry.validate_structure(Path::new(".")).unwrap();
+            assert_eq!(
+                registry.platforms["test"].description.as_deref(),
+                description
+            );
+            assert_eq!(
+                registry.firmwares["demo"].description.as_deref(),
+                description
+            );
+        }
+    }
+
+    #[test]
+    fn working_directory_defaults_do_not_accept_explicit_invalid_paths() {
+        let source = format!(
+            "{}[platforms.test]\ntarget = \"host-tuple\"\ncpu = \"native\"\nchip = \"test\"\n\
+             [firmwares.demo]\nplatform = \"test\"\npackage = \"demo\"\n",
+            crate::config_version::TEST_HEADER
+        );
+        for platform_override in [false, true] {
+            for value in ["", " \t", "invalid\0path"] {
+                let mut registry: Registry = toml::from_str(&source).unwrap();
+                if platform_override {
+                    registry.platforms.get_mut("test").unwrap().working_dir = Some(value.into());
+                    registry.firmwares.get_mut("demo").unwrap().working_dir = Some(".".into());
+                } else {
+                    registry.firmwares.get_mut("demo").unwrap().working_dir = Some(value.into());
+                }
+                let error = registry.validate_structure(Path::new(".")).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("empty or invalid directory value"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_schema_identifies_the_package_version_and_draft07_dialect() {
         let schema: serde_json::Value = serde_json::from_str(&schema_source().unwrap()).unwrap();
         assert_eq!(
@@ -987,7 +1027,7 @@ mod tests {
             id: id.into(),
             profile: None,
             firmware: Firmware {
-                description: id.into(),
+                description: Some(id.into()),
                 platform: "dm-mc02".into(),
                 package: id.into(),
                 bin: None,
@@ -1027,7 +1067,7 @@ mod tests {
                 firmwares: BTreeMap::from([(
                     "test-firmware".into(),
                     Firmware {
-                        description: "test firmware".into(),
+                        description: Some("test firmware".into()),
                         platform: "test-platform".into(),
                         package: "test-firmware".into(),
                         bin: None,

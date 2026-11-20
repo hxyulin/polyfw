@@ -99,15 +99,18 @@ impl Default for VscodeConfig {
 #[derive(Debug, Default, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Platform {
+    /// Optional human-readable label for platform information, independent of firmware descriptions.
+    pub(crate) description: Option<String>,
     /// Explicit Cargo compilation target, including host-tuple or a custom JSON target.
     pub(crate) target: String,
     /// Declared target CPU. Cargo's native rustflags precedence determines its final use.
     pub(crate) cpu: String,
     /// probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.
     pub(crate) chip: String,
-    /// Default Cargo working directory. Firmware may override it. Relative paths start
-    /// beside polyfw.toml; absolute paths and `..` are supported. One level must supply it.
+    /// Default Cargo working directory. Firmware may override it. Defaults to "." beside
+    /// polyfw.toml when omitted at both levels; absolute paths and `..` are supported.
     #[serde(rename = "working-dir")]
+    #[schemars(extend("default" = "."))]
     pub(crate) working_dir: Option<String>,
     /// Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels
     /// to retain Cargo's configuration/environment defaults. Relative to polyfw.toml.
@@ -128,8 +131,9 @@ pub(crate) struct Platform {
 #[derive(Debug, Default, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Firmware {
-    /// Human-readable label for firmware lists and the picker.
-    pub(crate) description: String,
+    /// Optional human-readable label for firmware lists and the picker.
+    /// Omission leaves the firmware without a description; it does not inherit the platform's.
+    pub(crate) description: Option<String>,
     /// Platform ID declared in this registry's platforms table.
     pub(crate) platform: String,
     /// Cargo package name in the workspace discovered from the effective working directory. It must declare a host-testable library

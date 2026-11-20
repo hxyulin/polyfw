@@ -21,6 +21,8 @@ pub(crate) struct Report {
 
 #[derive(Serialize)]
 pub(crate) struct Platform {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
     pub(crate) registered_firmwares: usize,
     pub(crate) target: String,
     pub(crate) cpu: String,
@@ -29,7 +31,8 @@ pub(crate) struct Platform {
 
 #[derive(Serialize)]
 pub(crate) struct Firmware {
-    pub(crate) description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
     pub(crate) platform: String,
     pub(crate) package: String,
     pub(crate) bin: String,
@@ -80,6 +83,7 @@ impl Report {
                 (
                     selection.firmware.platform.clone(),
                     Platform {
+                        description: platform.description.clone(),
                         registered_firmwares: context
                             .registry
                             .firmwares
@@ -291,6 +295,38 @@ mod tests {
             json["firmwares"]["two"]["local_dependencies"],
             serde_json::json!([])
         );
+        fs::remove_dir_all(context.root).unwrap();
+    }
+
+    #[test]
+    fn descriptions_are_independent_and_json_preserves_only_supplied_values() {
+        let mut context = fixture("descriptions");
+        for platform in [None, Some(""), Some(" \t"), Some("Demo board")] {
+            for firmware in [None, Some(""), Some(" \t"), Some("Demo firmware")] {
+                context
+                    .registry
+                    .platforms
+                    .get_mut("test")
+                    .unwrap()
+                    .description = platform.map(str::to_owned);
+                context
+                    .registry
+                    .firmwares
+                    .get_mut("one")
+                    .unwrap()
+                    .description = firmware.map(str::to_owned);
+                let report = Report::load(&context, None).unwrap();
+                let json = serde_json::to_value(report).unwrap();
+                assert_eq!(
+                    json["platforms"]["test"].get("description"),
+                    platform.map(serde_json::Value::from).as_ref()
+                );
+                assert_eq!(
+                    json["firmwares"]["one"].get("description"),
+                    firmware.map(serde_json::Value::from).as_ref()
+                );
+            }
+        }
         fs::remove_dir_all(context.root).unwrap();
     }
 

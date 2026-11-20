@@ -11,7 +11,8 @@ local-dependencies = ["./**"]
 enabled = true
 
 [platforms.your-platform]
-# Cargo commands run here; relative to this file.
+description = "An optional human-readable description about this platform"
+# Cargo commands run here; defaults to "." relative to this file.
 working-dir = "."
 # TODO: set the compilation target and CPU.
 target = "YOUR_TARGET"
@@ -25,7 +26,7 @@ cpu = "YOUR_CPU"
 chip = "YOUR_CHIP"
 
 [firmwares.your-firmware]
-description = "TODO: describe your firmware"
+description = "An optional human-readable description about this firmware"
 platform = "your-platform"
 # TODO: set the firmware package name.
 package = "your-firmware"

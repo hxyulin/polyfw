@@ -142,12 +142,20 @@ impl Ui {
                     platform.target.clone(),
                     platform.cpu.clone(),
                     platform.chip.clone(),
+                    platform.description.clone().unwrap_or_default(),
                 ]
             })
             .collect::<Vec<_>>();
         self.section("platforms", Some(platform_rows.len()), false);
         self.print_table(
-            &["name", "firmwares", "target", "declared CPU", "chip"],
+            &[
+                "name",
+                "firmwares",
+                "target",
+                "declared CPU",
+                "chip",
+                "description",
+            ],
             &platform_rows,
         );
 
@@ -196,10 +204,11 @@ impl Ui {
                         .iter()
                         .map(|artifact| artifact_status(artifact.exists)),
                 );
+                let description = firmware.description.as_deref().unwrap_or_default();
                 row.push(if saved.is_some() {
-                    style(&firmware.description).yellow().to_string()
+                    style(description).yellow().to_string()
                 } else {
-                    firmware.description.clone()
+                    description.to_owned()
                 });
                 row
             })
@@ -214,10 +223,15 @@ impl Ui {
     fn print_firmware_info(&self, report: &Report, id: &str, firmware: &Firmware) {
         let platform = &report.platforms[&firmware.platform];
         self.section("firmware", None, false);
-        let fields = [
-            ("name", id.to_owned()),
-            ("description", firmware.description.clone()),
-            ("platform", firmware.platform.clone()),
+        let mut fields = vec![("name", id.to_owned())];
+        if let Some(description) = &firmware.description {
+            fields.push(("description", description.clone()));
+        }
+        fields.push(("platform", firmware.platform.clone()));
+        if let Some(description) = &platform.description {
+            fields.push(("platform description", description.clone()));
+        }
+        fields.extend([
             ("workspace", firmware.workspace.display().to_string()),
             ("working-dir", firmware.working_dir.display().to_string()),
             ("target-dir", firmware.target_dir.display().to_string()),
@@ -235,7 +249,7 @@ impl Ui {
             ("chip", platform.chip.clone()),
             ("package", firmware.package.clone()),
             ("bin", firmware.bin.clone()),
-        ];
+        ]);
         let rows = fields
             .into_iter()
             .map(|(key, value)| vec![key.to_owned(), value])
@@ -308,16 +322,23 @@ impl Ui {
                 } else {
                     ""
                 };
+                let description = firmware
+                    .description
+                    .as_deref()
+                    .map(|description| {
+                        format!(
+                            "  {:<description_width$}",
+                            truncate_str(
+                                description,
+                                description_width,
+                                if self.unicode { "…" } else { "..." },
+                            )
+                        )
+                    })
+                    .unwrap_or_default();
                 format!(
-                    "{:<firmware_width$}  {:<platform_width$}  {:<description_width$}{}",
-                    id,
+                    "{id:<firmware_width$}  {:<platform_width$}{description}{marker}",
                     firmware.platform,
-                    truncate_str(
-                        &firmware.description,
-                        description_width,
-                        if self.unicode { "…" } else { "..." },
-                    ),
-                    marker
                 )
             })
             .collect();
