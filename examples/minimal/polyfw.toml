@@ -1,0 +1,14 @@
+config-version = "0.2.0"
+min-polyfw-version = "0.2.0"
+
+[config.vscode]
+enabled = false
+
+[platforms.host]
+target = "host-tuple"
+cpu = "native"
+chip = "test-chip"
+
+[firmwares.hello]
+platform = "host"
+package = "hello"

@@ -1,0 +1,18 @@
+config-version = "0.2.0"
+min-polyfw-version = "0.2.0"
+
+[config.vscode]
+enabled = false
+
+[platforms.host]
+target = "host-tuple"
+cpu = "native"
+chip = "test-chip"
+
+[firmwares.led-demo]
+platform = "host"
+package = "led-demo"
+
+[firmwares.buzzer-demo]
+platform = "host"
+package = "buzzer-demo"

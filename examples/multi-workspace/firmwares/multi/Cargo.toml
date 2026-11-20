@@ -1,0 +1,17 @@
+[package]
+name = "multi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/a"
+
+[dependencies]
+common = { workspace = true }
+
+[[bin]]
+name = "multi-one"
+path = "src/bin/one.rs"
+
+[[bin]]
+name = "multi-two"
+path = "src/bin/two.rs"

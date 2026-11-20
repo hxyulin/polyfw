@@ -29,8 +29,17 @@ features or updating dependencies.
 after the recipe name; their boundaries are preserved, including quoted paths with spaces.
 With no arguments, it prints CLI help.
 
-The polyfw repository has no firmware registry of its own. Point the development binary at an
-existing consumer:
+The repository root has no firmware registry of its own. The three small
+[host examples](https://github.com/inaku-Gyan/polyfw/tree/main/examples) are consuming projects
+and integration-test inputs. Run one with the development binary:
+
+```sh
+just run --project-root examples/minimal info
+just run --project-root examples/minimal verify --all-firmwares
+just run --project-root examples/minimal build --all-firmwares --release
+```
+
+Or point it at an existing consumer:
 
 ```sh
 just run --project-root /path/to/firmware-demos info
@@ -55,6 +64,7 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/probe.rs`, `src/vscode.rs` | Hardware subprocesses and generated debugger settings |
 | `src/info.rs`, `src/ui.rs` | Read-only reports and terminal output |
 | `tests/project_root.rs`, `tests/standalone.rs` | Executable-level project isolation and external-tool boundaries |
+| `examples/`, `tests/examples.rs` | Minimal host consumers reused by executable-level integration tests |
 | `.github/workflows/release.yml` | Tag validation, native binary archives and publication |
 
 Edit the initialization template in `assets/polyfw.toml`. Its schema directive points to
@@ -114,6 +124,12 @@ the intended diagnostic so an unrelated setup failure cannot count as success.
 Ordinary fixture builds may emit unused-dependency warnings. CI explicitly allows those build
 warnings; the repository's Clippy command still uses `-D warnings`. Hardware command and debugger
 fixtures establish generated arguments/settings, not physical device behavior.
+
+`cargo test --locked --test examples` copies the checked-in host examples to temporary directories
+and exercises real CLI builds, selection, external workspace members, dependency scopes and
+reported executable paths, including separate binaries in one package. The tests use only
+local dependencies and run offline as part of the default test suite. Keep each example
+workspace's Rust pin aligned with the repository pin.
 
 ## Validate changes
 

@@ -1,0 +1,7 @@
+[workspace]
+members = ["../../firmwares/first", "../../firmwares/multi"]
+resolver = "3"
+
+[workspace.dependencies]
+common = { path = "../../shared/common" }
+first-only = { path = "../../shared/first-only" }

@@ -1,0 +1,10 @@
+[package]
+name = "first"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/a"
+
+[dependencies]
+common = { workspace = true }
+first-only = { workspace = true }

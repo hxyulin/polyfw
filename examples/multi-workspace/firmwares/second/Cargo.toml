@@ -1,0 +1,10 @@
+[package]
+name = "second"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/b"
+
+[dependencies]
+common = { workspace = true }
+second-only = { workspace = true }

@@ -9,7 +9,16 @@ repository = "https://github.com/inaku-Gyan/polyfw"
 license = "MIT"
 keywords = ["cargo", "embedded", "firmware", "probe-rs"]
 categories = ["command-line-utilities", "development-tools::build-utils", "embedded"]
-exclude = ["AGENTS.md", "GLOSSARY.md", ".github/", "docs/adr/", "docs/research/", "dist/"]
+exclude = [
+    "AGENTS.md",
+    "GLOSSARY.md",
+    ".github/",
+    "docs/adr/",
+    "docs/research/",
+    "dist/",
+    "examples/",
+    "tests/examples.rs",
+]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"

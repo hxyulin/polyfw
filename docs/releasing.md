@@ -74,8 +74,10 @@ fixtures need `thumbv7em-none-eabihf`.
 
    `--allow-dirty` permits reviewing uncommitted preparation changes. The dry run builds the
    extracted crate without uploading. The actual publication uses a clean committed tree.
-   Source, README, license, embedded schema, Rust tests and the `docs/` guides are included.
-   `Cargo.toml` defines the excluded files, including `docs/adr/` and `docs/research/`.
+   Source, README, license, embedded schema, self-contained Rust tests and the `docs/` guides are
+   included. The host examples and their `tests/examples.rs` integration test stay in the source
+   checkout and are excluded together from the crate. `Cargo.toml` defines the excluded files,
+   including `docs/adr/` and `docs/research/`.
    Guide and README links use relative paths for offline reading.
 4. Commit the manifest, lockfile, generated schema and accompanying changes, then merge them
    into `main` through the normal review process.

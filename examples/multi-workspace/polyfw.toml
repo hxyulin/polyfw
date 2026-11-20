@@ -1,0 +1,40 @@
+config-version = "0.2.0"
+min-polyfw-version = "0.2.0"
+
+[config]
+local-dependencies = ["shared/*"]
+
+[config.vscode]
+enabled = false
+
+[platforms.a]
+target = "host-tuple"
+cpu = "native"
+chip = "test-chip"
+working-dir = "bsp/a"
+target-dir = "target/firmware/a"
+
+[platforms.b]
+target = "host-tuple"
+cpu = "native"
+chip = "test-chip"
+working-dir = "bsp/b"
+target-dir = "target/firmware/b"
+
+[firmwares.first]
+platform = "a"
+package = "first"
+
+[firmwares.second]
+platform = "b"
+package = "second"
+
+[firmwares.multi-one]
+platform = "a"
+package = "multi"
+bin = "multi-one"
+
+[firmwares.multi-two]
+platform = "a"
+package = "multi"
+bin = "multi-two"

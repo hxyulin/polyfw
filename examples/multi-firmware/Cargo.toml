@@ -1,0 +1,3 @@
+[workspace]
+members = ["firmwares/led-demo", "firmwares/buzzer-demo", "common"]
+resolver = "3"
