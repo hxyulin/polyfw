@@ -26,7 +26,7 @@
       "type": "string"
     },
     "firmwares": {
-      "description": "Selectable software entries, keyed by firmware ID such as led-demo or buzzer-demo.",
+      "description": "Selectable software entries, keyed by firmware ID such as `led-demo` or `buzzer-demo`.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Firmware"
@@ -69,7 +69,7 @@
       "type": "object",
       "properties": {
         "local-dependencies": {
-          "description": "Directory globs selecting reachable path packages for fmt, lint, test, verify\nand detailed info. Defaults to [\"./**\"]; [] selects no dependency packages.\nThe firmware itself is always included; registry and Git dependencies are excluded.\n\nMatch each package's canonical Cargo.toml directory. Relative patterns start\nbeside polyfw.toml; absolute paths and leading `..` can include external packages.\n`shared` matches only that directory, `shared/*` its immediate children, and\n`shared/**` the directory and all descendants. Literal prefixes are canonicalized;\n`..` must precede wildcards. Unmatched valid patterns select nothing; invalid\npatterns are errors. These globs select checks, not Cargo's dependency builds.",
+          "description": "Directory globs selecting reachable path packages for fmt, lint, test, verify\nand detailed info. Defaults to `[\"./**\"]`; `[]` selects no dependency packages.\nThe firmware itself is always included; registry and Git dependencies are excluded.\n\nMatch each package's canonical Cargo.toml directory. Relative patterns start\nbeside polyfw.toml; absolute paths and leading `..` can include external packages.\n`shared` matches only that directory, `shared/*` its immediate children, and\n`shared/**` the directory and all descendants. Literal prefixes are canonicalized;\n`..` must precede wildcards. Unmatched valid patterns select nothing; invalid\npatterns are errors. These globs select checks, not Cargo's dependency builds.",
           "type": "array",
           "default": [
             "./**"
@@ -104,7 +104,7 @@
           ]
         },
         "build-dir": {
-          "description": "Intermediate/cache directory overriding the platform; relative to polyfw.toml.",
+          "description": "Intermediate/cache directory overriding the platform; relative to `polyfw.toml`.",
           "type": [
             "string",
             "null"
@@ -133,14 +133,14 @@
           "type": "string"
         },
         "target-dir": {
-          "description": "Final-output directory overriding the platform; relative to polyfw.toml.",
+          "description": "Final-output directory overriding the platform; relative to `polyfw.toml`.",
           "type": [
             "string",
             "null"
           ]
         },
         "working-dir": {
-          "description": "Cargo working directory overriding the platform; relative to polyfw.toml.",
+          "description": "Cargo working directory overriding the platform; relative to `polyfw.toml`.",
           "type": [
             "string",
             "null"
@@ -158,7 +158,7 @@
       "type": "object",
       "properties": {
         "build-dir": {
-          "description": "Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels\nto retain Cargo's configuration/environment defaults. Relative to polyfw.toml.",
+          "description": "Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels\nto retain Cargo's configuration/environment defaults. Relative to `polyfw.toml`.",
           "type": [
             "string",
             "null"
@@ -172,7 +172,7 @@
           ]
         },
         "chip": {
-          "description": "probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.",
+          "description": "probe-rs chip name for hardware commands and editor sessions, for example `STM32H723VGTx`.",
           "type": "string"
         },
         "cpu": {
@@ -191,14 +191,14 @@
           "type": "string"
         },
         "target-dir": {
-          "description": "Default final-output directory override. Omit at both levels for Cargo defaults.\nRelative to polyfw.toml, independently of working-dir.",
+          "description": "Default final-output directory override. Omit at both levels for Cargo defaults.\nRelative to `polyfw.toml`, independently of `working-dir`.",
           "type": [
             "string",
             "null"
           ]
         },
         "working-dir": {
-          "description": "Default Cargo working directory. Firmware may override it. Defaults to \".\" beside\npolyfw.toml when omitted at both levels; absolute paths and `..` are supported.",
+          "description": "Default Cargo working directory. Firmware may override it. Defaults to `\".\"` beside\n`polyfw.toml` when omitted at both levels; absolute paths and `..` are supported.",
           "type": [
             "string",
             "null"
@@ -218,7 +218,7 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "description": "Replace the entire .vscode/launch.json on selection save and delete it on clear.\nDefaults to true. Set false to leave editor files untouched, including existing\nfiles generated while this option was enabled.",
+          "description": "Replace the entire `.vscode/launch.json` on selection save and delete it on clear.\nDefaults to true. Set false to leave editor files untouched, including existing\nfiles generated while this option was enabled.",
           "type": "boolean",
           "default": true
         }

@@ -41,7 +41,7 @@ pub(crate) struct Registry {
         "pattern": REGISTRY_NAME_PATTERN,
     }))]
     pub(crate) platforms: BTreeMap<String, Platform>,
-    /// Selectable software entries, keyed by firmware ID such as led-demo or buzzer-demo.
+    /// Selectable software entries, keyed by firmware ID such as `led-demo` or `buzzer-demo`.
     #[schemars(extend("minProperties" = 1, "propertyNames" = {
         "type": "string",
         "description": "ID starting with a lowercase letter, followed by lowercase letters, digits or single hyphens.",
@@ -55,7 +55,7 @@ pub(crate) struct Registry {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Config {
     /// Directory globs selecting reachable path packages for fmt, lint, test, verify
-    /// and detailed info. Defaults to ["./**"]; [] selects no dependency packages.
+    /// and detailed info. Defaults to `["./**"]`; `[]` selects no dependency packages.
     /// The firmware itself is always included; registry and Git dependencies are excluded.
     ///
     /// Match each package's canonical Cargo.toml directory. Relative patterns start
@@ -83,7 +83,7 @@ impl Default for Config {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct VscodeConfig {
-    /// Replace the entire .vscode/launch.json on selection save and delete it on clear.
+    /// Replace the entire `.vscode/launch.json` on selection save and delete it on clear.
     /// Defaults to true. Set false to leave editor files untouched, including existing
     /// files generated while this option was enabled.
     pub(crate) enabled: bool,
@@ -105,19 +105,19 @@ pub(crate) struct Platform {
     pub(crate) target: String,
     /// Declared target CPU. Cargo's native rustflags precedence determines its final use.
     pub(crate) cpu: String,
-    /// probe-rs chip name for hardware commands and editor sessions, for example STM32H723VGTx.
+    /// probe-rs chip name for hardware commands and editor sessions, for example `STM32H723VGTx`.
     pub(crate) chip: String,
-    /// Default Cargo working directory. Firmware may override it. Defaults to "." beside
-    /// polyfw.toml when omitted at both levels; absolute paths and `..` are supported.
+    /// Default Cargo working directory. Firmware may override it. Defaults to `"."` beside
+    /// `polyfw.toml` when omitted at both levels; absolute paths and `..` are supported.
     #[serde(rename = "working-dir")]
     #[schemars(extend("default" = "."))]
     pub(crate) working_dir: Option<String>,
     /// Default intermediate/cache directory override (Cargo 1.91+). Omit at both levels
-    /// to retain Cargo's configuration/environment defaults. Relative to polyfw.toml.
+    /// to retain Cargo's configuration/environment defaults. Relative to `polyfw.toml`.
     #[serde(rename = "build-dir")]
     pub(crate) build_dir: Option<String>,
     /// Default final-output directory override. Omit at both levels for Cargo defaults.
-    /// Relative to polyfw.toml, independently of working-dir.
+    /// Relative to `polyfw.toml`, independently of `working-dir`.
     #[serde(rename = "target-dir")]
     pub(crate) target_dir: Option<String>,
     /// Check effective target-side Cargo target/CPU before build and MCU Clippy. Defaults
@@ -142,13 +142,13 @@ pub(crate) struct Firmware {
     /// Firmware binary target name. Omit only if the package declares exactly one binary,
     /// counting feature-gated binaries independently of Cargo's default-run setting.
     pub(crate) bin: Option<String>,
-    /// Cargo working directory overriding the platform; relative to polyfw.toml.
+    /// Cargo working directory overriding the platform; relative to `polyfw.toml`.
     #[serde(rename = "working-dir")]
     pub(crate) working_dir: Option<String>,
-    /// Intermediate/cache directory overriding the platform; relative to polyfw.toml.
+    /// Intermediate/cache directory overriding the platform; relative to `polyfw.toml`.
     #[serde(rename = "build-dir")]
     pub(crate) build_dir: Option<String>,
-    /// Final-output directory overriding the platform; relative to polyfw.toml.
+    /// Final-output directory overriding the platform; relative to `polyfw.toml`.
     #[serde(rename = "target-dir")]
     pub(crate) target_dir: Option<String>,
     /// Override platform consistency checking, including explicitly disabling it.
