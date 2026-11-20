@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+mod support;
+
 struct Example {
     root: PathBuf,
 }
@@ -37,6 +39,7 @@ impl Example {
             .env_remove("CARGO_BUILD_TARGET")
             .env_remove("CARGO_TARGET_DIR")
             .env_remove("CARGO_BUILD_BUILD_DIR")
+            .env_remove("CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS")
             .env("RUSTUP_TOOLCHAIN", "polyfw-test-unavailable")
             .env("RUSTUP_AUTO_INSTALL", "0")
             .env("CARGO_NET_OFFLINE", "true")
@@ -109,8 +112,10 @@ fn succeeded(output: Output) -> Output {
     output
 }
 
-fn run_artifact(report: &serde_json::Value, firmware: &str, profile: &str) -> String {
-    let artifact = report["firmwares"][firmware]["artifacts"]
+fn assert_arm_artifact(report: &serde_json::Value, id: &str, profile: &str) {
+    let firmware = &report["firmwares"][id];
+    assert_eq!(firmware["target"], "thumbv7em-none-eabihf");
+    let artifact = firmware["artifacts"]
         .as_array()
         .unwrap()
         .iter()
@@ -119,8 +124,28 @@ fn run_artifact(report: &serde_json::Value, firmware: &str, profile: &str) -> St
     assert_eq!(artifact["exists"], true);
     let path = Path::new(artifact["path"].as_str().unwrap());
     assert!(path.is_absolute());
-    let output = succeeded(Command::new(path).output().unwrap());
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    assert_eq!(
+        path,
+        Path::new(firmware["target_dir"].as_str().unwrap())
+            .join("thumbv7em-none-eabihf")
+            .join(if profile == "dev" { "debug" } else { profile })
+            .join(firmware["bin"].as_str().unwrap())
+    );
+    let elf = fs::read(path).unwrap();
+    assert!(
+        elf.len() >= 52,
+        "ELF header missing from {}",
+        path.display()
+    );
+    assert_eq!(&elf[..6], b"\x7fELF\x01\x01", "32-bit little-endian ELF");
+    assert_eq!(&elf[16..18], &[2, 0], "ELF must be an executable");
+    assert_eq!(&elf[18..20], &[40, 0], "ELF must target ARM");
+    let entry = u32::from_le_bytes(elf[24..28].try_into().unwrap());
+    assert_eq!(entry & 1, 1, "Cortex-M entry point must use Thumb mode");
+    assert!(
+        (0x0800_0000..0x0806_0000).contains(&entry),
+        "entry point {entry:#x} must lie in the configured flash region"
+    );
 }
 
 #[test]
@@ -152,7 +177,9 @@ fn minimal_example_discovers_selects_and_builds_the_reported_artifact() {
     let report = example.json(&["info", "--json"]);
     assert_eq!(report["saved_selection"]["firmware"], "hello");
     assert_eq!(report["saved_selection"]["profile"], "release");
-    assert_eq!(run_artifact(&report, "hello", "release"), "hello");
+    assert_arm_artifact(&report, "hello", "release");
+    assert_eq!(report["platforms"]["dm-mc02"]["cpu"], "cortex-m7");
+    assert_eq!(report["platforms"]["dm-mc02"]["chip"], "STM32H723VGTx");
     assert!(!example.root.join(".vscode/launch.json").exists());
     example.run(&["verify", "--all-firmwares"]);
     example.run(&["select", "--clear"]);
@@ -178,17 +205,14 @@ fn multi_firmware_example_switches_and_checks_only_the_selected_scope() {
     let report = example.json(&["info", "--json"]);
     assert_eq!(report["saved_selection"]["firmware"], "led-demo");
     for id in ["led-demo", "buzzer-demo"] {
-        assert_eq!(run_artifact(&report, id, "release"), format!("{id}: 42"));
+        assert_arm_artifact(&report, id, "release");
     }
     example.run(&["select", "buzzer-demo", "--dev"]);
     example.run(&["build"]);
     let report = example.json(&["info", "--json"]);
     assert_eq!(report["saved_selection"]["firmware"], "buzzer-demo");
     assert_eq!(report["saved_selection"]["profile"], "dev");
-    assert_eq!(
-        run_artifact(&report, "buzzer-demo", "dev"),
-        "buzzer-demo: 42"
-    );
+    assert_arm_artifact(&report, "buzzer-demo", "dev");
     assert_eq!(
         report["firmwares"]["led-demo"]["artifacts"][0]["exists"],
         false
@@ -210,6 +234,17 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
     assert_eq!(report["firmwares"].as_object().unwrap().len(), 4);
     assert_eq!(report["platforms"]["a"]["registered_firmwares"], 3);
     assert_eq!(report["platforms"]["b"]["registered_firmwares"], 1);
+    for (platform, cpu, chip) in [
+        ("a", "cortex-m7", "STM32H723VGTx"),
+        ("b", "cortex-m4", "STM32F407IG"),
+    ] {
+        assert_eq!(
+            report["platforms"][platform]["target"],
+            "thumbv7em-none-eabihf"
+        );
+        assert_eq!(report["platforms"][platform]["cpu"], cpu);
+        assert_eq!(report["platforms"][platform]["chip"], chip);
+    }
     for (id, platform, package, expected) in [
         ("first", "a", "first", &["common", "first-only"][..]),
         ("second", "b", "second", &["common", "second-only"][..]),
@@ -248,11 +283,22 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
     }
 
     example.run(&["verify", "--all-firmwares"]);
+    let cargo = succeeded(
+        support::workspace_cargo(&example.root)
+            .arg("-vV")
+            .output()
+            .unwrap(),
+    );
+    let version = String::from_utf8(cargo.stdout).unwrap();
+    let host = version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap();
     assert!(
         example
             .root
             .join("target")
-            .join(report["firmwares"]["first"]["target"].as_str().unwrap())
+            .join(host)
             .join("debug")
             .is_dir()
     );
@@ -264,10 +310,7 @@ fn multi_workspace_example_builds_selected_bins_and_all_firmwares() {
     example.run(&["select", "multi-one", "--release"]);
     example.run(&["build"]);
     let report = example.json(&["info", "--json"]);
-    assert_eq!(
-        run_artifact(&report, "multi-one", "release"),
-        "multi-one: common"
-    );
+    assert_arm_artifact(&report, "multi-one", "release");
     for id in ["first", "second", "multi-two"] {
         assert_eq!(report["firmwares"][id]["artifacts"][1]["exists"], false);
     }
@@ -275,26 +318,15 @@ fn multi_workspace_example_builds_selected_bins_and_all_firmwares() {
     example.run(&["select", "multi-two", "--release"]);
     example.run(&["build"]);
     let report = example.json(&["info", "--json"]);
-    assert_eq!(
-        run_artifact(&report, "multi-two", "release"),
-        "multi-two: common"
-    );
-    assert_eq!(
-        run_artifact(&report, "multi-one", "release"),
-        "multi-one: common"
-    );
+    assert_arm_artifact(&report, "multi-two", "release");
+    assert_arm_artifact(&report, "multi-one", "release");
 
     example.run(&["build", "--all-firmwares", "--release"]);
     let report = example.json(&["info", "--json"]);
     assert_eq!(report["saved_selection"]["firmware"], "multi-two");
     assert_eq!(report["saved_selection"]["profile"], "release");
-    for (id, message) in [
-        ("first", "first: common + first-only"),
-        ("second", "second: common + second-only"),
-        ("multi-one", "multi-one: common"),
-        ("multi-two", "multi-two: common"),
-    ] {
-        assert_eq!(run_artifact(&report, id, "release"), message);
+    for id in ["first", "second", "multi-one", "multi-two"] {
+        assert_arm_artifact(&report, id, "release");
     }
 }
 

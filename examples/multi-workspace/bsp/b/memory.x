@@ -1,0 +1,6 @@
+/* STM32F407IG: SRAM1 and SRAM2; use the first 384 KiB of flash. */
+MEMORY
+{
+    FLASH : ORIGIN = 0x08000000, LENGTH = 384K
+    RAM   : ORIGIN = 0x20000000, LENGTH = 128K
+}

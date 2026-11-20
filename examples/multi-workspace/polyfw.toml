@@ -8,16 +8,16 @@ local-dependencies = ["shared/*"]
 enabled = false
 
 [platforms.a]
-target = "host-tuple"
-cpu = "native"
-chip = "test-chip"
+target = "thumbv7em-none-eabihf"
+cpu = "cortex-m7"
+chip = "STM32H723VGTx"
 working-dir = "bsp/a"
 target-dir = "target/firmware/a"
 
 [platforms.b]
-target = "host-tuple"
-cpu = "native"
-chip = "test-chip"
+target = "thumbv7em-none-eabihf"
+cpu = "cortex-m4"
+chip = "STM32F407IG"
 working-dir = "bsp/b"
 target-dir = "target/firmware/b"
 

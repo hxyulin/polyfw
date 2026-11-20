@@ -6,3 +6,12 @@ publish = false
 
 [dependencies]
 common = { path = "../../common" }
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt = "0.7.7"
+
+[[bin]]
+name = "led-demo"
+path = "src/main.rs"
+test = false
+bench = false

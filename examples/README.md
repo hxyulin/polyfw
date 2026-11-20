@@ -1,8 +1,14 @@
 # Examples
 
-These small host projects demonstrate polyfw configuration and serve as integration-test inputs.
-They use `host-tuple`, the `native` CPU and local path dependencies. Their programs only print
-messages; Rust, rustfmt and Clippy are sufficient to run them.
+These small Cortex-M projects demonstrate polyfw configuration and serve as integration-test
+inputs. They use the real `thumbv7em-none-eabihf` target, Cortex-M7 or Cortex-M4 CPUs, and STM32
+chip identifiers. Minimal `cortex-m-rt` startup code and linker layouts produce ARM ELF files;
+the firmware loops call library functions. The libraries support host tests.
+
+| Example platform | CPU | probe-rs chip |
+| --- | --- | --- |
+| `minimal`, `multi-firmware`, `multi-workspace` platform a (DM-MC02) | `cortex-m7` | `STM32H723VGTx` |
+| `multi-workspace` platform b (RM-C) | `cortex-m4` | `STM32F407IG` |
 
 | Project | What it exercises |
 | --- | --- |
@@ -18,6 +24,7 @@ outside this checkout. Each Cargo workspace includes its own lockfile and Rust p
 With polyfw installed, enter an example directory and run:
 
 ```sh
+rustup target add thumbv7em-none-eabihf
 polyfw info
 polyfw verify --all-firmwares
 polyfw build --all-firmwares --release
@@ -32,14 +39,19 @@ just run --project-root examples/minimal build
 just run --project-root examples/minimal info --firmware hello --json
 ```
 
-The JSON report gives the built executable's path. Run that executable directly to see `hello`.
-For `multi-firmware`, select `led-demo` or `buzzer-demo`; their executables print their names and a
-shared value. For `multi-workspace`, select `first`, `second`, `multi-one` or `multi-two` as
+The JSON report gives the linked ARM ELF's path. For `multi-firmware`, select `led-demo` or
+`buzzer-demo`. For `multi-workspace`, select `first`, `second`, `multi-one` or `multi-two` as
 described below.
 
-The host platform's `test-chip` is a placeholder for the required chip field. Editor generation
-is disabled. For hardware commands, configure an embedded target, CPU and real probe-rs chip as
-described in [Project configuration](../docs/configuration.md).
+Each firmware binary disables its host test harness; library tests run on the host while builds
+and target-side Clippy use the MCU target. The linker layouts reserve the first 384 KiB of flash
+and 128 KiB of RAM (DM-MC02 DTCM or RM-C SRAM). The matching Cargo configuration lives beside each
+layout and supplies the target, CPU and linker script. Each firmware package's build script adds
+the absolute memory-layout directory to the linker search path, including for external members.
+
+These examples validate cross-compilation, linking and polyfw orchestration. Board execution is
+a separate manual check. Editor generation is disabled. See
+[Project configuration](../docs/configuration.md) for hardware and editor setup.
 
 ## Multiple workspaces
 
@@ -57,8 +69,8 @@ multi-workspace/
 │   ├── first-only/
 │   └── second-only/
 ├── bsp/
-│   ├── a/                     # workspace: first, multi; its own lockfile and Rust pin
-│   └── b/                     # workspace: second; its own lockfile and Rust pin
+│   ├── a/                     # DM-MC02 workspace: first, multi; .cargo/config.toml + memory.x
+│   └── b/                     # RM-C workspace: second; .cargo/config.toml + memory.x
 └── firmwares/
     ├── first/
     ├── second/
@@ -87,17 +99,23 @@ polyfw build
 
 Platforms a and b use `bsp/a` and `bsp/b` as their working directories, with separate output roots
 at `target/firmware/a` and `target/firmware/b`. Shared-library host checks use the root workspace's
-native `target` directory. The BSP directories are workspace containers; all programs run on the
-host and print which dependencies they use.
+native `target` directory. Each BSP directory contains its Cargo configuration, memory layout,
+lockfile and Rust pin; the firmware packages remain outside it.
 
 ## Run the integration tests
 
 ```sh
+just fetch-examples
 cargo test --locked --test examples
 ```
 
+`just fetch-examples` downloads the runtime and macro dependencies using each workspace's pin
+and lockfile. `just check` runs this preparation automatically, including on a cold CI checkout.
+Once dependencies and the target are installed, `CARGO_NET_OFFLINE=true just check` works offline.
+
 The tests copy these projects into temporary directories, invoke the built polyfw executable,
-and build and run the reported host artifacts. They check external workspace membership and
-independent builds of a package's two bins. Failing tests introduced in the copies check that
-polyfw includes reachable shared dependencies and excludes unrelated packages. The tests run
+and check that reported artifacts are linked 32-bit ARM ELF executables with Thumb entry points
+in flash. They also check platform CPU/chip values, external workspace membership and independent
+builds of a package's two bins. Failing host tests introduced in the copies check that polyfw
+includes reachable shared dependencies and excludes unrelated packages. Test subprocesses run
 without network access and are included in `just check`.

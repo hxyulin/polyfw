@@ -4,11 +4,11 @@ min-polyfw-version = "0.2.0"
 [config.vscode]
 enabled = false
 
-[platforms.host]
-target = "host-tuple"
-cpu = "native"
-chip = "test-chip"
+[platforms.dm-mc02]
+target = "thumbv7em-none-eabihf"
+cpu = "cortex-m7"
+chip = "STM32H723VGTx"
 
 [firmwares.hello]
-platform = "host"
+platform = "dm-mc02"
 package = "hello"

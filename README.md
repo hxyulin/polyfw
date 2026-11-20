@@ -88,7 +88,7 @@ polyfw verify --all-firmwares
 | --- | --- |
 | Register firmware and platforms; configure checks and editor generation | [Project configuration](docs/configuration.md) |
 | Select, build, test, flash, debug and troubleshoot | [Usage](docs/usage.md) |
-| Try small host projects used by the integration tests | [Examples](https://github.com/inaku-Gyan/polyfw/tree/main/examples) |
+| Try minimal ARM projects used by the integration tests | [Examples](https://github.com/inaku-Gyan/polyfw/tree/main/examples) |
 | Understand validation, dependency scopes and state management | [Design](docs/design.md) |
 | Change polyfw, run checks and maintain generated documentation | [Development](docs/development.md) |
 | Prepare and publish stable or prerelease versions | [Releasing](docs/releasing.md) |

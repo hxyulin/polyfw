@@ -8,3 +8,12 @@ workspace = "../../bsp/b"
 [dependencies]
 common = { workspace = true }
 second-only = { workspace = true }
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt = "0.7.7"
+
+[[bin]]
+name = "second"
+path = "src/main.rs"
+test = false
+bench = false

@@ -1,3 +1,9 @@
-fn main() {
-    println!("buzzer-demo: {}", buzzer_demo::value());
+#![no_std]
+#![no_main]
+
+#[cortex_m_rt::entry]
+fn main() -> ! {
+    loop {
+        core::hint::black_box(buzzer_demo::value());
+    }
 }

@@ -15,8 +15,8 @@ rustup target add thumbv7em-none-eabihf
 just check
 ```
 
-`just check` checks Rust formatting, runs Clippy for all targets with warnings denied, runs the
-Rust tests, and builds a release executable.
+`just check` fetches locked example dependencies, checks Rust formatting, runs Clippy for all
+targets with warnings denied, runs the Rust tests, and builds a release executable.
 
 Use `just --list` for repository recipes. `just fix` formats source and applies Clippy fixes;
 review those changes before committing. The Rust minimum in `Cargo.toml` is the supported compiler
@@ -30,7 +30,7 @@ after the recipe name; their boundaries are preserved, including quoted paths wi
 With no arguments, it prints CLI help.
 
 The repository root has no firmware registry of its own. The three small
-[host examples](https://github.com/inaku-Gyan/polyfw/tree/main/examples) are consuming projects
+[ARM examples](https://github.com/inaku-Gyan/polyfw/tree/main/examples) are consuming projects
 and integration-test inputs. Run one with the development binary:
 
 ```sh
@@ -64,7 +64,7 @@ use the consuming workspaces' pins rather than inheriting the compiler used to r
 | `src/probe.rs`, `src/vscode.rs` | Hardware subprocesses and generated debugger settings |
 | `src/info.rs`, `src/ui.rs` | Read-only reports and terminal output |
 | `tests/project_root.rs`, `tests/standalone.rs` | Executable-level project isolation and external-tool boundaries |
-| `examples/`, `tests/examples.rs` | Minimal host consumers reused by executable-level integration tests |
+| `examples/`, `tests/examples.rs` | Minimal Cortex-M consumers reused by executable-level integration tests |
 | `.github/workflows/release.yml` | Tag validation, native binary archives and publication |
 
 Edit the initialization template in `assets/polyfw.toml`. Its schema directive points to
@@ -125,11 +125,12 @@ Ordinary fixture builds may emit unused-dependency warnings. CI explicitly allow
 warnings; the repository's Clippy command still uses `-D warnings`. Hardware command and debugger
 fixtures establish generated arguments/settings, not physical device behavior.
 
-`cargo test --locked --test examples` copies the checked-in host examples to temporary directories
-and exercises real CLI builds, selection, external workspace members, dependency scopes and
-reported executable paths, including separate binaries in one package. The tests use only
-local dependencies and run offline as part of the default test suite. Keep each example
-workspace's Rust pin aligned with the repository pin.
+Run `just fetch-examples` before `cargo test --locked --test examples` on a fresh checkout.
+`just check` includes this dependency preparation. The tests copy the checked-in ARM examples
+to temporary directories and exercise real MCU builds, host library tests, selection, external
+workspace members and dependency scopes. They check reported ELF paths and ARM headers, including
+separate binaries in one package. Test subprocesses run offline after preparation. Keep each
+example workspace's Rust pin aligned with the repository pin.
 
 ## Validate changes
 

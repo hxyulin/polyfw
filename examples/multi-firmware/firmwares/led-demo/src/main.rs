@@ -1,3 +1,9 @@
-fn main() {
-    println!("led-demo: {}", led_demo::value());
+#![no_std]
+#![no_main]
+
+#[cortex_m_rt::entry]
+fn main() -> ! {
+    loop {
+        core::hint::black_box(led_demo::value());
+    }
 }
