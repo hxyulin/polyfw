@@ -48,6 +48,6 @@ jobs:
           tool: just@1.58.0
 
       - name: Check and build
-        run:
+        run: |
           just check
           cargo build --locked --release
