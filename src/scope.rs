@@ -780,7 +780,7 @@ mod tests {
         .unwrap();
         fs::write(
             duplicate.join("src/lib.rs"),
-            "#![no_std]\n#![forbid(unsafe_code)]\n",
+            "#![no_std]\n#![forbid(unsafe_code)]\npub fn value() -> u8 {\n    0\n}\n",
         )
         .unwrap();
         let manifest = context.root.join("platform/test/firmware-a/Cargo.toml");
@@ -793,6 +793,13 @@ mod tests {
                  second-common = { package = \"firmware-a\", path = \"../../../shared/duplicate\" }",
                 1,
             ),
+        )
+        .unwrap();
+        let library = context.root.join("platform/test/firmware-a/src/lib.rs");
+        let source = fs::read_to_string(&library).unwrap();
+        fs::write(
+            library,
+            format!("{source}\npub use second_common::value as duplicate_value;\n"),
         )
         .unwrap();
         lock(&duplicate);
@@ -936,7 +943,11 @@ mod tests {
                  drivers = { package = \"common-a\", path = \"../common-a\" }\n\
                  [build-dependencies]\nbuild-helper = { path = \"../build-helper\" }\n\
                  [dev-dependencies]\ndev-helper = { path = \"../dev-helper\" }\n",
-                library,
+                "#![no_std]\n#![forbid(unsafe_code)]\n\
+                 pub fn value() -> u8 {\n\
+                 let value = mixed::value() + outside::value();\n\
+                 #[cfg(target_os = \"none\")]\nlet value = value + drivers::value();\n\
+                 macro_helper::noop!(value)\n}\n",
             ),
             (
                 "firmware-b",
@@ -963,7 +974,8 @@ mod tests {
                 "dev-helper",
                 "[dependencies]\nhost-leaf = { path = \"../host-leaf\" }\n\
                  mixed = { path = \"../mixed\" }\n",
-                "#![forbid(unsafe_code)]\npub fn value() -> String { host_leaf::host_value() }\n",
+                "#![forbid(unsafe_code)]\npub fn value() -> String {\n\
+                 let _ = mixed::value();\nhost_leaf::host_value()\n}\n",
             ),
             (
                 "macro-helper",
@@ -1049,11 +1061,11 @@ mod tests {
         .unwrap();
         fs::write(
             outside.join("src/lib.rs"),
-            format!(
-                "{library}\n#[cfg(test)]\nmod tests {{\n#[test]\n\
-                 fn the_helper_is_available_to_dependency_tests() {{\n\
-                 assert!(outside_test_helper::value().is_empty());\n}}\n}}\n"
-            ),
+            "#![no_std]\n#![forbid(unsafe_code)]\n\
+             pub fn value() -> u8 { common_b::value() }\n\
+             #[cfg(test)]\nmod tests {\n#[test]\n\
+             fn the_helper_is_available_to_dependency_tests() {\n\
+             assert!(outside_test_helper::value().is_empty());\n}\n}\n",
         )
         .unwrap();
         fs::create_dir_all(outside.join("test-helper/src")).unwrap();
