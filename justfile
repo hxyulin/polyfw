@@ -15,20 +15,8 @@ run *args:
 schema:
     just run schema --output assets/polyfw.schema.json
 
-# Fetch locked dependencies for the consuming example workspaces.
-fetch-examples:
-    #!/usr/bin/env sh
-    set -eu
-    for workspace in examples/minimal examples/multi-firmware examples/multi-workspace/bsp/a examples/multi-workspace/bsp/b; do
-        (
-            cd "$workspace"
-            unset RUSTUP_TOOLCHAIN
-            cargo fetch --locked
-        )
-    done
-
-# Fetch example dependencies, check formatting, Clippy and tests, then build the release executable.
-check: fetch-examples
+# Check formatting, Clippy and tests, then build the release executable.
+check:
     cargo fmt --check
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked

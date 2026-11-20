@@ -42,7 +42,6 @@ impl Example {
             .env_remove("CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS")
             .env("RUSTUP_TOOLCHAIN", "polyfw-test-unavailable")
             .env("RUSTUP_AUTO_INSTALL", "0")
-            .env("CARGO_NET_OFFLINE", "true")
             .env("NO_COLOR", "1");
         command
     }

@@ -15,8 +15,8 @@ rustup target add thumbv7em-none-eabihf
 just check
 ```
 
-`just check` fetches locked example dependencies, checks Rust formatting, runs Clippy for all
-targets with warnings denied, runs the Rust tests, and builds a release executable.
+`just check` checks Rust formatting, runs Clippy for all targets with warnings denied, runs the
+Rust tests, and builds a release executable.
 
 Use `just --list` for repository recipes. `just fix` formats source and applies Clippy fixes;
 review those changes before committing. The Rust minimum in `Cargo.toml` is the supported compiler
@@ -125,12 +125,12 @@ Ordinary fixture builds may emit unused-dependency warnings. CI explicitly allow
 warnings; the repository's Clippy command still uses `-D warnings`. Hardware command and debugger
 fixtures establish generated arguments/settings, not physical device behavior.
 
-Run `just fetch-examples` before `cargo test --locked --test examples` on a fresh checkout.
-`just check` includes this dependency preparation. The tests copy the checked-in ARM examples
-to temporary directories and exercise real MCU builds, host library tests, selection, external
-workspace members and dependency scopes. They check reported ELF paths and ARM headers, including
-separate binaries in one package. Test subprocesses run offline after preparation. Keep each
-example workspace's Rust pin aligned with the repository pin.
+`cargo test --locked --test examples` copies the checked-in ARM examples to temporary directories
+and exercises real MCU builds, host library tests, selection, external workspace members and
+dependency scopes. The tests check reported ELF paths and ARM headers, including
+separate binaries in one package. Cargo fetches locked dependencies as needed and inherits the
+caller's network settings. With dependencies cached, set `CARGO_NET_OFFLINE=true` for an offline
+run. Keep each example workspace's Rust pin aligned with the repository pin.
 
 ## Validate changes
 

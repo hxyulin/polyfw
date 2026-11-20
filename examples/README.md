@@ -105,17 +105,16 @@ lockfile and Rust pin; the firmware packages remain outside it.
 ## Run the integration tests
 
 ```sh
-just fetch-examples
 cargo test --locked --test examples
 ```
 
-`just fetch-examples` downloads the runtime and macro dependencies using each workspace's pin
-and lockfile. `just check` runs this preparation automatically, including on a cold CI checkout.
-Once dependencies and the target are installed, `CARGO_NET_OFFLINE=true just check` works offline.
+Cargo downloads dependencies as needed using each workspace's Rust pin and committed lockfile.
+The tests inherit the caller's network settings. Once dependencies and the target are installed,
+`CARGO_NET_OFFLINE=true just check` works offline.
 
 The tests copy these projects into temporary directories, invoke the built polyfw executable,
 and check that reported artifacts are linked 32-bit ARM ELF executables with Thumb entry points
 in flash. They also check platform CPU/chip values, external workspace membership and independent
 builds of a package's two bins. Failing host tests introduced in the copies check that polyfw
-includes reachable shared dependencies and excludes unrelated packages. Test subprocesses run
-without network access and are included in `just check`.
+includes reachable shared dependencies and excludes unrelated packages. These integration tests
+are included in `just check`.
