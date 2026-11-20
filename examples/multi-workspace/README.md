@@ -73,6 +73,10 @@ The `led` library selects a shared pulse pattern for its `BlinkRate`. Its two bi
 different rates through that common interface. The buzzer uses a pulse pattern for an alert;
 the screen combines text layout with a refresh interval.
 
+Host tests in `patterns` check that both pulse patterns have nonzero on/off durations and that
+the fast pattern has a shorter cycle. The `led` library tests that selecting a fast blink shortens
+both intervals. These tests run through polyfw's host test and verification commands.
+
 `config.local-dependencies = ["shared/*"]` selects reachable shared packages for checks:
 
 | Firmware | Shared packages checked |

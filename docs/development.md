@@ -150,7 +150,15 @@ built polyfw executable. It exercises real MCU builds, host library tests, selec
 workspace members and dependency scopes. The tests check reported artifact paths, platform
 CPU/chip values and linked 32-bit ARM ELF executables with Thumb entry points in flash, including
 independent builds of a package's two binaries. Failing host tests introduced in the copies check
-that polyfw includes reachable shared dependencies and excludes unrelated packages.
+that polyfw includes reachable shared dependencies and excludes unrelated packages, with separate
+cases for each shared library. The multi-workspace example also contains passing host tests for
+pulse timing and LED rate selection; its integration test checks that these tests actually run.
+
+Failure fixtures check that `verify` runs formatting, MCU Clippy, host Clippy and host tests in
+order, stops at the failing stage, and leaves sources unchanged during format checking. A failed
+build after `--select` must retain the newly saved firmware and profile. Cleanup tests start with
+real dev/release images, check package-wide deletion and preservation, then exercise full cleanup
+and rebuilding. See [Usage](usage.md#build-check-and-clean) for the cleanup contract.
 
 Cargo fetches locked dependencies as needed using each command's effective Rust toolchain and
 inherits the caller's network settings. With dependencies cached and the target installed, set

@@ -55,24 +55,20 @@ impl Example {
     }
 
     fn assert_test_fails(&self, scope: &str, marker: &str) {
-        let output = self.command(&["test", scope]).output().unwrap();
-        assert!(!output.status.success());
-        assert!(
-            String::from_utf8_lossy(&output.stdout).contains(marker),
-            "stdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        failed_test(self.command(&["test", scope]).output().unwrap(), marker);
     }
 
     fn add_failing_test(&self, path: &str, marker: &str) {
+        self.append_source(
+            path,
+            &format!("\n#[test]\nfn scope_sentinel() {{\n    panic!({marker:?});\n}}\n"),
+        );
+    }
+
+    fn append_source(&self, path: &str, addition: &str) {
         let path = self.root.join(path);
         let source = fs::read_to_string(&path).unwrap();
-        fs::write(
-            path,
-            format!("{source}\n#[test]\nfn scope_sentinel() {{\n    panic!({marker:?});\n}}\n"),
-        )
-        .unwrap();
+        fs::write(path, format!("{source}{addition}")).unwrap();
     }
 }
 
@@ -111,15 +107,67 @@ fn succeeded(output: Output) -> Output {
     output
 }
 
-fn assert_arm_artifact(report: &serde_json::Value, id: &str, profile: &str) {
-    let firmware = &report["firmwares"][id];
-    assert_eq!(firmware["target"], "thumbv7em-none-eabihf");
-    let artifact = firmware["artifacts"]
+fn failed(output: Output, marker: &str) -> Output {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "command unexpectedly succeeded\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains(marker) || stderr.contains(marker),
+        "missing failure marker {marker:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    output
+}
+
+fn failed_test(output: Output, marker: &str) -> Output {
+    let output = failed(output, marker);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(marker),
+        "missing test panic marker {marker:?}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn assert_verify_stages(output: &Output, expected: &[&str]) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stages = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("  $ cargo "))
+        .map(|command| match command.split_whitespace().next().unwrap() {
+            "fmt" => "fmt",
+            "clippy" if command.contains("--target host-tuple") => "host clippy",
+            "clippy" => "mcu clippy",
+            "test" => "test",
+            _ => panic!("unexpected verify command: {command}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(stages, expected, "stderr:\n{stderr}");
+}
+
+fn artifact<'a>(report: &'a serde_json::Value, id: &str, profile: &str) -> &'a serde_json::Value {
+    report["firmwares"][id]["artifacts"]
         .as_array()
         .unwrap()
         .iter()
         .find(|artifact| artifact["profile"] == profile)
-        .unwrap();
+        .unwrap_or_else(|| panic!("missing {profile} artifact for {id}"))
+}
+
+fn assert_artifact_absent(report: &serde_json::Value, id: &str, profile: &str) {
+    let artifact = artifact(report, id, profile);
+    assert_eq!(artifact["exists"], false, "{id} ({profile})");
+    let path = Path::new(artifact["path"].as_str().unwrap());
+    assert!(!path.exists(), "{} must not exist", path.display());
+}
+
+fn assert_arm_artifact(report: &serde_json::Value, id: &str, profile: &str) {
+    let firmware = &report["firmwares"][id];
+    assert_eq!(firmware["target"], "thumbv7em-none-eabihf");
+    let artifact = artifact(report, id, profile);
     assert_eq!(artifact["exists"], true);
     let path = Path::new(artifact["path"].as_str().unwrap());
     assert!(path.is_absolute());
@@ -186,6 +234,63 @@ fn minimal_example_discovers_selects_and_builds_the_reported_artifact() {
 }
 
 #[test]
+fn minimal_example_verify_stops_after_a_formatting_failure_without_rewriting_sources() {
+    let example = Example::new("minimal");
+    example.append_source("src/lib.rs", "\npub fn format_sentinel( ){ }\n");
+    let path = example.root.join("src/lib.rs");
+    let source = fs::read(&path).unwrap();
+
+    let output = failed(
+        example.command(&["verify", "hello"]).output().unwrap(),
+        "Diff in",
+    );
+    assert_verify_stages(&output, &["fmt"]);
+    assert_eq!(fs::read(path).unwrap(), source);
+}
+
+#[test]
+fn minimal_example_verify_stops_after_an_mcu_lint_failure() {
+    let example = Example::new("minimal");
+    example.append_source(
+        "src/lib.rs",
+        "\n#[cfg(target_os = \"none\")]\npub fn mcu_lint_sentinel(values: &[u8]) -> bool {\n    values.len() == 0\n}\n",
+    );
+
+    let output = failed(
+        example.command(&["verify", "hello"]).output().unwrap(),
+        "clippy::len_zero",
+    );
+    assert_verify_stages(&output, &["fmt", "mcu clippy"]);
+}
+
+#[test]
+fn minimal_example_verify_stops_after_a_host_lint_failure() {
+    let example = Example::new("minimal");
+    example.append_source(
+        "src/lib.rs",
+        "\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn host_lint_sentinel() {\n        let values: &[u8] = &[];\n        assert!(values.len() == 0);\n    }\n}\n",
+    );
+
+    let output = failed(
+        example.command(&["verify", "hello"]).output().unwrap(),
+        "clippy::len_zero",
+    );
+    assert_verify_stages(&output, &["fmt", "mcu clippy", "host clippy"]);
+}
+
+#[test]
+fn minimal_example_verify_reports_a_host_test_failure_after_formatting_and_linting() {
+    let example = Example::new("minimal");
+    example.add_failing_test("src/lib.rs", "verify host test sentinel");
+
+    let output = failed_test(
+        example.command(&["verify", "hello"]).output().unwrap(),
+        "verify host test sentinel",
+    );
+    assert_verify_stages(&output, &["fmt", "mcu clippy", "host clippy", "test"]);
+}
+
+#[test]
 fn multi_firmware_example_switches_and_checks_only_the_selected_scope() {
     let example = Example::new("multi-firmware");
     let report = example.json(&["info", "--json"]);
@@ -212,10 +317,7 @@ fn multi_firmware_example_switches_and_checks_only_the_selected_scope() {
     assert_eq!(report["saved_selection"]["firmware"], "buzzer-demo");
     assert_eq!(report["saved_selection"]["profile"], "dev");
     assert_arm_artifact(&report, "buzzer-demo", "dev");
-    assert_eq!(
-        report["firmwares"]["led-demo"]["artifacts"][0]["exists"],
-        false
-    );
+    assert_artifact_absent(&report, "led-demo", "dev");
     example.run(&["verify", "--all-firmwares"]);
 
     example.add_failing_test(
@@ -224,6 +326,29 @@ fn multi_firmware_example_switches_and_checks_only_the_selected_scope() {
     );
     example.run(&["test", "led-demo"]);
     example.assert_test_fails("--all-firmwares", "unselected firmware test");
+}
+
+#[test]
+fn multi_firmware_example_retains_a_new_selection_when_its_build_fails() {
+    let example = Example::new("multi-firmware");
+    example.run(&["select", "led-demo", "--dev"]);
+    example.append_source(
+        "firmwares/buzzer-demo/src/main.rs",
+        "\ncompile_error!(\"selected build failure sentinel\");\n",
+    );
+
+    failed(
+        example
+            .command(&["build", "buzzer-demo", "--select", "--release"])
+            .output()
+            .unwrap(),
+        "selected build failure sentinel",
+    );
+    let report = example.json(&["info", "--json"]);
+    assert_eq!(report["saved_selection"]["firmware"], "buzzer-demo");
+    assert_eq!(report["saved_selection"]["profile"], "release");
+    assert_artifact_absent(&report, "buzzer-demo", "release");
+    assert!(!example.root.join(".vscode/launch.json").exists());
 }
 
 #[test]
@@ -282,7 +407,18 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
         }
     }
 
-    example.run(&["verify", "--all-firmwares"]);
+    let output = example.run(&["verify", "--all-firmwares"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for name in [
+        "pulse_patterns_have_nonzero_on_and_off_durations",
+        "fast_pulses_have_a_shorter_cycle_than_slow_pulses",
+        "fast_blinks_have_shorter_on_and_off_intervals_than_slow_blinks",
+    ] {
+        assert!(
+            stdout.contains(&format!("test tests::{name} ... ok")),
+            "host test {name} did not run successfully\nstdout:\n{stdout}"
+        );
+    }
     let cargo = succeeded(
         support::workspace_cargo(&example.root)
             .arg("-vV")
@@ -312,7 +448,7 @@ fn multi_workspace_example_builds_selected_bins_and_all_firmwares() {
     let report = example.json(&["info", "--json"]);
     assert_arm_artifact(&report, "led-1", "release");
     for id in ["buzzer", "screen", "led-2"] {
-        assert_eq!(report["firmwares"][id]["artifacts"][1]["exists"], false);
+        assert_artifact_absent(&report, id, "release");
     }
 
     example.run(&["select", "led-2", "--release"]);
@@ -331,28 +467,67 @@ fn multi_workspace_example_builds_selected_bins_and_all_firmwares() {
 }
 
 #[test]
-fn multi_workspace_example_tests_only_reachable_shared_libraries() {
-    for (package, included, excluded) in [
-        (
-            "patterns",
-            &["buzzer", "led-1", "led-2"][..],
-            &["screen"][..],
-        ),
-        ("layout", &["screen"][..], &["buzzer", "led-1", "led-2"][..]),
-        (
-            "timing",
-            &["buzzer", "screen", "led-1", "led-2"][..],
-            &[][..],
-        ),
-    ] {
-        let example = Example::new("multi-workspace");
-        let marker = format!("{package} test");
-        example.add_failing_test(&format!("shared/{package}/src/lib.rs"), &marker);
-        for id in included {
-            example.assert_test_fails(id, &marker);
-        }
-        for id in excluded {
-            example.run(&["test", id]);
+fn multi_workspace_example_cleans_package_images_and_all_registered_output_contexts() {
+    let example = Example::new("multi-workspace");
+    let ids = ["buzzer", "screen", "led-1", "led-2"];
+    example.run(&["build", "--all-firmwares", "--dev"]);
+    example.run(&["build", "--all-firmwares", "--release"]);
+    let report = example.json(&["info", "--json"]);
+    for id in ids {
+        for profile in ["dev", "release"] {
+            assert_arm_artifact(&report, id, profile);
         }
     }
+
+    example.run(&["clean", "led-1"]);
+    let report = example.json(&["info", "--json"]);
+    for id in ["led-1", "led-2"] {
+        assert_artifact_absent(&report, id, "dev");
+    }
+    for id in ["buzzer", "screen"] {
+        assert_arm_artifact(&report, id, "dev");
+    }
+    for id in ids {
+        assert_arm_artifact(&report, id, "release");
+    }
+
+    example.run(&["clean", "--all-firmwares"]);
+    let report = example.json(&["info", "--json"]);
+    for id in ids {
+        for profile in ["dev", "release"] {
+            assert_artifact_absent(&report, id, profile);
+        }
+    }
+
+    example.run(&["build", "led-2", "--dev"]);
+    let report = example.json(&["info", "--json"]);
+    assert_arm_artifact(&report, "led-2", "dev");
+    assert_artifact_absent(&report, "led-1", "dev");
+}
+
+fn assert_shared_test_scope(package: &str, included: &[&str], excluded: &[&str]) {
+    let example = Example::new("multi-workspace");
+    let marker = format!("{package} test");
+    example.add_failing_test(&format!("shared/{package}/src/lib.rs"), &marker);
+    for id in included {
+        example.assert_test_fails(id, &marker);
+    }
+    for id in excluded {
+        example.run(&["test", id]);
+    }
+}
+
+#[test]
+fn multi_workspace_example_tests_patterns_only_for_buzzer_and_led_firmwares() {
+    assert_shared_test_scope("patterns", &["buzzer", "led-1", "led-2"], &["screen"]);
+}
+
+#[test]
+fn multi_workspace_example_tests_layout_only_for_the_screen_firmware() {
+    assert_shared_test_scope("layout", &["screen"], &["buzzer", "led-1", "led-2"]);
+}
+
+#[test]
+fn multi_workspace_example_tests_timing_for_direct_and_transitive_dependents() {
+    assert_shared_test_scope("timing", &["buzzer", "screen", "led-1", "led-2"], &[]);
 }
