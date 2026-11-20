@@ -1,0 +1,19 @@
+[package]
+name = "screen"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/board-b"
+
+[dependencies]
+layout = { workspace = true }
+timing = { workspace = true }
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt = "0.7.7"
+
+[[bin]]
+name = "screen"
+path = "src/main.rs"
+test = false
+bench = false

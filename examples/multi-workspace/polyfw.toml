@@ -7,34 +7,40 @@ local-dependencies = ["shared/*"]
 [config.vscode]
 enabled = false
 
-[platforms.a]
+[platforms.board-a]
+description = "board-A"
 target = "thumbv7em-none-eabihf"
 cpu = "cortex-m7"
 chip = "STM32H723VGTx"
-working-dir = "bsp/a"
-target-dir = "target/firmware/a"
+working-dir = "bsp/board-a"
+target-dir = "target/firmware/board-a"
 
-[platforms.b]
+[platforms.board-b]
+description = "board-B"
 target = "thumbv7em-none-eabihf"
 cpu = "cortex-m4"
 chip = "STM32F407IG"
-working-dir = "bsp/b"
-target-dir = "target/firmware/b"
+working-dir = "bsp/board-b"
+target-dir = "target/firmware/board-b"
 
-[firmwares.first]
-platform = "a"
-package = "first"
+[firmwares.buzzer]
+description = "Buzzer alert pattern"
+platform = "board-a"
+package = "buzzer"
 
-[firmwares.second]
-platform = "b"
-package = "second"
+[firmwares.screen]
+description = "Screen dashboard layout"
+platform = "board-b"
+package = "screen"
 
-[firmwares.multi-one]
-platform = "a"
-package = "multi"
-bin = "multi-one"
+[firmwares.led-1]
+description = "Slow LED blink pattern"
+platform = "board-a"
+package = "led"
+bin = "led-1"
 
-[firmwares.multi-two]
-platform = "a"
-package = "multi"
-bin = "multi-two"
+[firmwares.led-2]
+description = "Fast LED blink pattern"
+platform = "board-a"
+package = "led"
+bin = "led-2"

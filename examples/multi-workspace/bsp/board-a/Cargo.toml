@@ -1,0 +1,6 @@
+[workspace]
+members = ["../../firmwares/buzzer", "../../firmwares/led"]
+resolver = "3"
+
+[workspace.dependencies]
+patterns = { path = "../../shared/patterns" }

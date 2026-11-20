@@ -231,11 +231,11 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
     let example = Example::new("multi-workspace");
     let report = example.json(&["info", "--json"]);
     assert_eq!(report["firmwares"].as_object().unwrap().len(), 4);
-    assert_eq!(report["platforms"]["a"]["registered_firmwares"], 3);
-    assert_eq!(report["platforms"]["b"]["registered_firmwares"], 1);
-    for (platform, cpu, chip) in [
-        ("a", "cortex-m7", "STM32H723VGTx"),
-        ("b", "cortex-m4", "STM32F407IG"),
+    assert_eq!(report["platforms"]["board-a"]["registered_firmwares"], 3);
+    assert_eq!(report["platforms"]["board-b"]["registered_firmwares"], 1);
+    for (platform, description, cpu, chip) in [
+        ("board-a", "board-A", "cortex-m7", "STM32H723VGTx"),
+        ("board-b", "board-B", "cortex-m4", "STM32F407IG"),
     ] {
         assert_eq!(
             report["platforms"][platform]["target"],
@@ -243,12 +243,13 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
         );
         assert_eq!(report["platforms"][platform]["cpu"], cpu);
         assert_eq!(report["platforms"][platform]["chip"], chip);
+        assert_eq!(report["platforms"][platform]["description"], description);
     }
     for (id, platform, package, expected) in [
-        ("first", "a", "first", &["common", "first-only"][..]),
-        ("second", "b", "second", &["common", "second-only"][..]),
-        ("multi-one", "a", "multi", &["common"][..]),
-        ("multi-two", "a", "multi", &["common"][..]),
+        ("buzzer", "board-a", "buzzer", &["patterns", "timing"][..]),
+        ("screen", "board-b", "screen", &["layout", "timing"][..]),
+        ("led-1", "board-a", "led", &["patterns", "timing"][..]),
+        ("led-2", "board-a", "led", &["patterns", "timing"][..]),
     ] {
         let details = example.json(&["info", "--firmware", id, "--json"]);
         let firmware = &details["firmwares"][id];
@@ -306,43 +307,52 @@ fn multi_workspace_example_reports_external_members_and_shared_scopes() {
 #[test]
 fn multi_workspace_example_builds_selected_bins_and_all_firmwares() {
     let example = Example::new("multi-workspace");
-    example.run(&["select", "multi-one", "--release"]);
+    example.run(&["select", "led-1", "--release"]);
     example.run(&["build"]);
     let report = example.json(&["info", "--json"]);
-    assert_arm_artifact(&report, "multi-one", "release");
-    for id in ["first", "second", "multi-two"] {
+    assert_arm_artifact(&report, "led-1", "release");
+    for id in ["buzzer", "screen", "led-2"] {
         assert_eq!(report["firmwares"][id]["artifacts"][1]["exists"], false);
     }
 
-    example.run(&["select", "multi-two", "--release"]);
+    example.run(&["select", "led-2", "--release"]);
     example.run(&["build"]);
     let report = example.json(&["info", "--json"]);
-    assert_arm_artifact(&report, "multi-two", "release");
-    assert_arm_artifact(&report, "multi-one", "release");
+    assert_arm_artifact(&report, "led-2", "release");
+    assert_arm_artifact(&report, "led-1", "release");
 
     example.run(&["build", "--all-firmwares", "--release"]);
     let report = example.json(&["info", "--json"]);
-    assert_eq!(report["saved_selection"]["firmware"], "multi-two");
+    assert_eq!(report["saved_selection"]["firmware"], "led-2");
     assert_eq!(report["saved_selection"]["profile"], "release");
-    for id in ["first", "second", "multi-one", "multi-two"] {
+    for id in ["buzzer", "screen", "led-1", "led-2"] {
         assert_arm_artifact(&report, id, "release");
     }
 }
 
 #[test]
 fn multi_workspace_example_tests_only_reachable_shared_libraries() {
-    let example = Example::new("multi-workspace");
-    example.add_failing_test("shared/first-only/src/lib.rs", "first-only test");
-    example.assert_test_fails("first", "first-only test");
-    example.run(&["test", "second"]);
-    example.add_failing_test("shared/second-only/src/lib.rs", "second-only test");
-    example.assert_test_fails("second", "second-only test");
-    for id in ["multi-one", "multi-two"] {
-        example.run(&["test", id]);
-    }
-
-    example.add_failing_test("shared/common/src/lib.rs", "common test");
-    for id in ["multi-one", "multi-two"] {
-        example.assert_test_fails(id, "common test");
+    for (package, included, excluded) in [
+        (
+            "patterns",
+            &["buzzer", "led-1", "led-2"][..],
+            &["screen"][..],
+        ),
+        ("layout", &["screen"][..], &["buzzer", "led-1", "led-2"][..]),
+        (
+            "timing",
+            &["buzzer", "screen", "led-1", "led-2"][..],
+            &[][..],
+        ),
+    ] {
+        let example = Example::new("multi-workspace");
+        let marker = format!("{package} test");
+        example.add_failing_test(&format!("shared/{package}/src/lib.rs"), &marker);
+        for id in included {
+            example.assert_test_fails(id, &marker);
+        }
+        for id in excluded {
+            example.run(&["test", id]);
+        }
     }
 }

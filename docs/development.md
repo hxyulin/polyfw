@@ -129,8 +129,11 @@ fixtures establish generated arguments/settings, not physical device behavior.
 ## Maintain the examples
 
 Each example directory is a self-contained consuming project. Copy the whole project directory
-when trying it outside this checkout. Every Cargo workspace includes a committed lockfile and
-Rust pin; keep each example workspace's pin aligned with the repository pin.
+when trying it outside this checkout. Every Cargo workspace includes a committed lockfile. Keep
+each example's root Rust pin aligned with the repository pin. Nested workspaces may inherit this
+pin through directory ancestry; add a local pin when a workspace needs different toolchain
+requirements. See [compiler isolation](design.md#workspace-and-compiler-isolation) for how the
+working directory determines toolchain selection.
 
 After [setting up the checkout](#set-up-a-checkout), run the example integration tests from the
 repository root:
@@ -146,8 +149,8 @@ CPU/chip values and linked 32-bit ARM ELF executables with Thumb entry points in
 independent builds of a package's two binaries. Failing host tests introduced in the copies check
 that polyfw includes reachable shared dependencies and excludes unrelated packages.
 
-Cargo fetches locked dependencies as needed using each workspace's Rust pin and inherits the
-caller's network settings. With dependencies cached and the target installed, set
+Cargo fetches locked dependencies as needed using each command's effective Rust toolchain and
+inherits the caller's network settings. With dependencies cached and the target installed, set
 `CARGO_NET_OFFLINE=true` for an offline run. These tests are included in `just check`.
 
 ## Validate changes

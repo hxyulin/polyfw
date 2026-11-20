@@ -1,0 +1,7 @@
+[workspace]
+members = ["../../firmwares/screen"]
+resolver = "3"
+
+[workspace.dependencies]
+layout = { path = "../../shared/layout" }
+timing = { path = "../../shared/timing" }

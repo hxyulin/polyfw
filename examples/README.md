@@ -4,7 +4,7 @@
 | --- | --- |
 | [minimal](minimal/README.md) | One Cargo package with a library and one firmware binary. |
 | [multi-firmware](multi-firmware/README.md) | Two firmware packages sharing a library and platform in one workspace. |
-| [multi-workspace](multi-workspace/README.md) | Three workspaces with external firmware members, shared libraries and a two-bin package. |
+| [multi-workspace](multi-workspace/README.md) | Buzzer, screen and two LED firmwares across three workspaces, with shared libraries and a two-bin LED package. |
 
 ## Common commands
 

@@ -1,0 +1,18 @@
+[package]
+name = "buzzer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/board-a"
+
+[dependencies]
+patterns = { workspace = true }
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt = "0.7.7"
+
+[[bin]]
+name = "buzzer"
+path = "src/main.rs"
+test = false
+bench = false

@@ -1,0 +1,24 @@
+[package]
+name = "led"
+version = "0.1.0"
+edition = "2024"
+publish = false
+workspace = "../../bsp/board-a"
+
+[dependencies]
+patterns = { workspace = true }
+
+[[bin]]
+name = "led-1"
+path = "src/bin/led-1.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "led-2"
+path = "src/bin/led-2.rs"
+test = false
+bench = false
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt = "0.7.7"
