@@ -26,5 +26,6 @@ fix:
 # Clean build artifacts and remove example build directories.
 clean:
     cargo clean
+    rm -r dist
     rm -r examples/*/target
     rm -r examples/*/.polyfw-state
