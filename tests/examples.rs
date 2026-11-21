@@ -2,8 +2,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 mod support;
 
@@ -326,6 +329,68 @@ fn multi_firmware_example_switches_and_checks_only_the_selected_scope() {
     );
     example.run(&["test", "led-demo"]);
     example.assert_test_fails("--all-firmwares", "unselected firmware test");
+}
+
+#[test]
+fn multi_firmware_example_waits_for_concurrent_selection_writes() {
+    let example = Example::new("multi-firmware");
+    let config = example.root.join("polyfw.toml");
+    let source = fs::read_to_string(&config).unwrap();
+    fs::write(&config, source.replace("enabled = false", "enabled = true")).unwrap();
+    example.run(&["select", "led-demo", "--dev"]);
+
+    let selection = example.root.join(".polyfw-state/selected");
+    let launch = example.root.join(".vscode/launch.json");
+    let lock_path = example.root.join(".polyfw-state/selection.lock");
+    let run_while_locked = |args: &[&str]| {
+        let lock = fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        lock.lock().unwrap();
+        let previous_selection = fs::read(&selection).unwrap();
+        let previous_launch = fs::read(&launch).unwrap();
+        let child = example
+            .command(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let (complete, completed) = mpsc::channel();
+        thread::scope(|scope| {
+            scope.spawn(move || complete.send(child.wait_with_output()).unwrap());
+            let early_result = completed.recv_timeout(Duration::from_secs(1));
+            let selection_while_locked = fs::read(&selection);
+            let launch_while_locked = fs::read(&launch);
+            drop(lock);
+
+            assert!(
+                matches!(early_result, Err(mpsc::RecvTimeoutError::Timeout)),
+                "{args:?} finished with the selection lock held: {early_result:?}"
+            );
+            assert_eq!(selection_while_locked.unwrap(), previous_selection);
+            assert_eq!(launch_while_locked.unwrap(), previous_launch);
+            succeeded(completed.recv().unwrap().unwrap());
+        });
+    };
+
+    run_while_locked(&["select", "buzzer-demo", "--release"]);
+    let report = example.json(&["info", "--json"]);
+    assert_eq!(report["saved_selection"]["firmware"], "buzzer-demo");
+    assert_eq!(report["saved_selection"]["profile"], "release");
+    let launch_config: serde_json::Value =
+        serde_json::from_slice(&fs::read(&launch).unwrap()).unwrap();
+    assert_eq!(
+        launch_config["configurations"][0]["name"],
+        "Launch buzzer-demo (release)"
+    );
+
+    run_while_locked(&["select", "--clear"]);
+    assert!(!selection.exists());
+    assert!(!launch.exists());
 }
 
 #[test]

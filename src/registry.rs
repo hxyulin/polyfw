@@ -13,6 +13,7 @@ use crate::runner;
 use crate::vscode;
 
 const REGISTRY_FILE: &str = "polyfw.toml";
+const STATE_DIRECTORY: &str = ".polyfw-state";
 const SELECTION_FILE: &str = ".polyfw-state/selected";
 
 pub(crate) fn project_root(explicit: Option<&Path>, working_directory: &Path) -> Result<PathBuf> {
@@ -157,6 +158,7 @@ impl Context {
             firmware: id.to_owned(),
             profile: profile.cloned(),
         })?;
+        let _lock = self.lock_selection()?;
         let path = self.selection_path();
         if !self.registry.config.vscode.enabled {
             return write_file(&path, value.as_bytes());
@@ -185,16 +187,48 @@ impl Context {
         Ok(())
     }
 
-    pub(crate) fn clear_selection(&self) -> Vec<(&'static str, std::io::Result<()>)> {
+    pub(crate) fn clear_selection(&self) -> Result<Vec<(&'static str, std::io::Result<()>)>> {
         let mut files = Vec::with_capacity(2);
         if self.registry.config.vscode.enabled {
             files.push(vscode::LAUNCH_FILE);
         }
         files.push(SELECTION_FILE);
-        files
+
+        let missing = |path| {
+            fs::symlink_metadata(self.root.join(path))
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        };
+        // Check the state directory last. Every writer creates it before modifying files.
+        if files.iter().all(|&path| missing(path)) && missing(STATE_DIRECTORY) {
+            return Ok(files
+                .into_iter()
+                .map(|file| (file, Err(std::io::ErrorKind::NotFound.into())))
+                .collect());
+        }
+
+        let _lock = self.lock_selection()?;
+        Ok(files
             .into_iter()
             .map(|file| (file, fs::remove_file(self.root.join(file))))
-            .collect()
+            .collect())
+    }
+
+    fn lock_selection(&self) -> Result<fs::File> {
+        let directory = self.root.join(STATE_DIRECTORY);
+        let path = directory.join("selection.lock");
+        let lock = (|| -> std::io::Result<_> {
+            fs::create_dir_all(&directory)?;
+            let file = fs::File::options()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&path)?;
+            file.lock()?;
+            Ok(file)
+        })();
+        lock.map_err(|error| {
+            format!("could not lock selection at {}: {error}", path.display()).into()
+        })
     }
 }
 
@@ -1130,12 +1164,19 @@ mod tests {
         assert!(
             context
                 .clear_selection()
+                .unwrap()
                 .iter()
                 .all(|(_, result)| result.is_ok())
         );
-        assert!(context.clear_selection().iter().all(|(_, result)| {
-            result.as_ref().unwrap_err().kind() == std::io::ErrorKind::NotFound
-        }));
+        assert!(
+            context
+                .clear_selection()
+                .unwrap()
+                .iter()
+                .all(|(_, result)| {
+                    result.as_ref().unwrap_err().kind() == std::io::ErrorKind::NotFound
+                })
+        );
         assert!(context.read_selection().unwrap().is_none());
 
         fs::remove_dir_all(root).unwrap();

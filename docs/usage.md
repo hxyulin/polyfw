@@ -94,8 +94,9 @@ polyfw omits the Cargo profile flag and Cargo's build default applies. An explic
 
 A stale or malformed saved selection is an error. A one-time firmware override still reads that
 state; replace it with `polyfw select led-demo` or remove it with `polyfw select --clear`.
-Clearing works without Cargo and without parsing the old state. A successful save remains even
-if the following build or hardware action fails.
+Clearing works without Cargo and without parsing the old state. Concurrent saves and clears in the
+same project wait for the current [selection write](design.md#selection-and-editor-writes) to finish.
+A successful save remains even if the following build or hardware action fails.
 
 ## Inspect firmwares and images
 

@@ -118,7 +118,7 @@ fn select(
 ) -> Result<ExitCode> {
     if clear {
         let mut exit = ExitCode::SUCCESS;
-        for (path, result) in context.clear_selection() {
+        for (path, result) in context.clear_selection()? {
             ui.removal(path, &result);
             if result.is_err_and(|error| error.kind() != std::io::ErrorKind::NotFound) {
                 exit = ExitCode::FAILURE;
@@ -574,8 +574,9 @@ mod tests {
             fs::read_to_string(editor.join("tasks.json")).unwrap(),
             "{}\n"
         );
+        fs::remove_dir_all(context.selection_path().parent().unwrap()).unwrap();
         fs::write(editor.join("launch.json"), "{}\n").unwrap();
-        let removed = context.clear_selection();
+        let removed = context.clear_selection().unwrap();
         assert!(removed[0].1.is_ok());
         assert_eq!(
             removed[1].1.as_ref().unwrap_err().kind(),
@@ -613,6 +614,35 @@ mod tests {
     }
 
     #[test]
+    fn selection_changes_leave_both_files_untouched_when_the_lock_cannot_be_opened() {
+        let context = test_context(test_root("selection-lock-failure"));
+        context.save_selection("test-firmware", None).unwrap();
+        let selection = context.selection_path();
+        let launch = context.root.join(crate::vscode::LAUNCH_FILE);
+        let previous_selection = fs::read(&selection).unwrap();
+        let previous_launch = fs::read(&launch).unwrap();
+        let lock = context.root.join(".polyfw-state/selection.lock");
+        fs::remove_file(&lock).unwrap();
+        fs::create_dir(&lock).unwrap();
+
+        let profile = "release".parse().unwrap();
+        let save_error = context
+            .save_selection("test-firmware", Some(&profile))
+            .unwrap_err();
+        let clear_error =
+            select(&context, &Ui::new(ColorChoice::Never), None, true, None).unwrap_err();
+        for error in [save_error, clear_error] {
+            assert!(
+                error.to_string().contains("could not lock selection"),
+                "{error}"
+            );
+        }
+        assert_eq!(fs::read(selection).unwrap(), previous_selection);
+        assert_eq!(fs::read(launch).unwrap(), previous_launch);
+        fs::remove_dir_all(context.root).unwrap();
+    }
+
+    #[test]
     fn disabling_vscode_leaves_existing_editor_files_untouched_when_saving_or_clearing() {
         let mut context = test_context(test_root("vscode-disabled"));
         context.save_selection("test-firmware", None).unwrap();
@@ -640,7 +670,7 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::create_dir(&path).unwrap();
         context.save_selection("test-firmware", None).unwrap();
-        assert_eq!(context.clear_selection().len(), 1);
+        assert_eq!(context.clear_selection().unwrap().len(), 1);
         assert!(path.is_dir());
         fs::remove_dir_all(context.root).unwrap();
     }

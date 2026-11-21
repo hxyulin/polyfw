@@ -363,6 +363,7 @@ fn clearing_selection_needs_no_cargo_and_obeys_the_projects_vscode_setting() {
             .unwrap();
         succeeded(&output);
         assert!(!fixture.root.join(".polyfw-state/selected").exists());
+        assert!(fixture.root.join(".polyfw-state/selection.lock").is_file());
         if enabled {
             assert!(!launch.exists());
         } else {

@@ -145,6 +145,11 @@ Saved selection is project-local TOML containing a firmware and optional explici
 malformed state and a stale firmware are distinct cases. Profile inheritance and one-time overrides
 are resolved before orchestration; saving with no explicit profile clears the previous profile.
 
+Selection writers for each project take a blocking exclusive lock on `.polyfw-state/selection.lock`.
+The lock covers launch and selection file changes, including rollback, and is released when the
+operation ends. Once created, the lock file stays in place through clears so concurrent writers
+always lock the same file.
+
 A save may precede a build or hardware action. Its success is retained if the later action fails.
 With editor generation enabled, the save first replaces the launch file, then writes selection
 state. If the state write fails, it restores the previous launch bytes or removes the newly created
