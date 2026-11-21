@@ -33,16 +33,10 @@ impl Example {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_polyfw"));
+        let mut command = support::polyfw();
         command
             .current_dir(&self.root)
             .args(args)
-            .env_remove("RUSTFLAGS")
-            .env_remove("CARGO_ENCODED_RUSTFLAGS")
-            .env_remove("CARGO_BUILD_TARGET")
-            .env_remove("CARGO_TARGET_DIR")
-            .env_remove("CARGO_BUILD_BUILD_DIR")
-            .env_remove("CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS")
             .env("RUSTUP_TOOLCHAIN", "polyfw-test-unavailable")
             .env("RUSTUP_AUTO_INSTALL", "0")
             .env("NO_COLOR", "1");

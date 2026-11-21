@@ -13,6 +13,9 @@ mod profile;
 mod registry;
 mod runner;
 mod scope;
+#[cfg(test)]
+#[path = "../tests/support/cargo_env.rs"]
+mod test_cargo_env;
 mod ui;
 mod vscode;
 

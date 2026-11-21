@@ -117,6 +117,10 @@ root. A dependency workspace outside that root needs its own pin. Set up their C
 through the workspace launcher as well. The ancestor-toolchain regression checks that an unusable
 outer pin cannot be hidden by a developer's default installation.
 
+Fixture commands clear inherited Cargo settings for the compilation target, output directories,
+and `rustc` and `rustdoc` flags. Apply environment overrides under test after creating the fixture
+command.
+
 Canonicalize temporary roots before writing relative or absolute path dependencies. On macOS,
 `/var` and `/private/var` can name the same directory; mixing them can produce lockfile package
 collisions. Fixtures do not need a `TMPDIR` override. Tests expecting a compiler failure must check

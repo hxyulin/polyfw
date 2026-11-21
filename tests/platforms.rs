@@ -75,15 +75,10 @@ impl Project {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_polyfw"));
+        let mut command = support::polyfw();
         command
             .current_dir(&self.project)
             .args(args)
-            .env_remove("RUSTFLAGS")
-            .env_remove("CARGO_ENCODED_RUSTFLAGS")
-            .env_remove("CARGO_BUILD_TARGET")
-            .env_remove("CARGO_TARGET_DIR")
-            .env_remove("CARGO_BUILD_BUILD_DIR")
             .env("CARGO_NET_OFFLINE", "true")
             .env("RUSTUP_AUTO_INSTALL", "0")
             .env("NO_COLOR", "1");
@@ -214,6 +209,23 @@ fn info_displays_platform_descriptions_and_omits_missing_firmware_description_ro
 }
 
 #[test]
+fn cargo_fixtures_use_their_own_output_directories() {
+    let output = succeed(
+        Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "directory_inheritance_and_native_defaults_use_cargos_actual_workspace_and_outputs",
+            ])
+            .env("CARGO_BUILD_TARGET_DIR", "ambient-target")
+            .env("CARGO_BUILD_BUILD_DIR", "ambient-build")
+            .output()
+            .unwrap(),
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("1 passed"), "{stdout}");
+}
+
+#[test]
 fn directory_inheritance_and_native_defaults_use_cargos_actual_workspace_and_outputs() {
     let fixture = Project::new("directories");
     let buzzer = fixture.root.join("images/buzzer");
@@ -282,6 +294,21 @@ fn directory_inheritance_and_native_defaults_use_cargos_actual_workspace_and_out
             .unwrap(),
         fixture.root.join("cargo-cache")
     );
+
+    let override_dir = fixture.root.join("output-override");
+    fs::create_dir_all(&override_dir).unwrap();
+    let output = succeed(
+        fixture
+            .command(&["info", "--json"])
+            .env("CARGO_BUILD_TARGET_DIR", &override_dir)
+            .output()
+            .unwrap(),
+    );
+    let info: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let target_dir = info["firmwares"]["led-demo"]["target_dir"]
+        .as_str()
+        .unwrap();
+    assert_eq!(Path::new(target_dir).canonicalize().unwrap(), override_dir);
 }
 
 #[test]

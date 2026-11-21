@@ -36,14 +36,10 @@ fn firmware_paths_follow_explicit_platform_and_cpu_reporting_remains_declarative
     )
     .unwrap();
     let info = |environment: &[(&str, &str)]| {
-        let output = Command::new(env!("CARGO_BIN_EXE_polyfw"))
+        let output = support::polyfw()
             .arg("--project-root")
             .arg(&root)
             .args(["info", "--json"])
-            .env_remove("CARGO_BUILD_TARGET")
-            .env_remove("CARGO_ENCODED_RUSTFLAGS")
-            .env_remove("RUSTFLAGS")
-            .env_remove("CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS")
             .envs(environment.iter().copied())
             .output()
             .unwrap();
@@ -155,7 +151,7 @@ fn cargo_commands_use_each_workspaces_pin_instead_of_the_tools_inherited_toolcha
 
     for action in ["verify", "build"] {
         succeeded(
-            &Command::new(env!("CARGO_BIN_EXE_polyfw"))
+            &support::polyfw()
                 .current_dir(&common)
                 .arg("--project-root")
                 .arg(&firmware)
@@ -239,7 +235,7 @@ fn one_tool_keeps_two_projects_selections_and_debug_files_independent() {
         .unwrap();
     }
     let select = |caller: &Path, project: &Path| {
-        Command::new(env!("CARGO_BIN_EXE_polyfw"))
+        support::polyfw()
             .current_dir(caller)
             .arg("--project-root")
             .arg(root.join("missing"))

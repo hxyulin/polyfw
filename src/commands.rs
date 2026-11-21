@@ -940,11 +940,9 @@ mod tests {
         assert_ne!(host[0].1.get_current_dir(), host[1].1.get_current_dir());
         for Stage(_, command) in &host {
             assert!(command.get_args().any(|arg| arg == "host-tuple"));
-            assert!(
-                !command
-                    .get_envs()
-                    .any(|(key, _)| key == "CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS")
-            );
+            assert!(!command.get_envs().any(|(key, value)| {
+                key == "CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS" && value.is_some()
+            }));
         }
         assert_eq!(fmt_stages(&context, &ui, &scopes, true).len(), 2);
         assert_eq!(lint_stages(&context, &ui, &scopes).len(), 4);

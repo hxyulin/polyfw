@@ -7,7 +7,10 @@ use crate::profile::Profile;
 use crate::ui::{Progress, Ui};
 
 pub(crate) fn workspace_cargo(workspace: &Path) -> Command {
-    workspace_command(workspace, "cargo")
+    let command = workspace_command(workspace, "cargo");
+    #[cfg(test)]
+    let command = crate::test_cargo_env::isolate_cargo_environment(command);
+    command
 }
 
 pub(crate) fn workspace_command(workspace: &Path, program: &str) -> Command {
@@ -32,7 +35,10 @@ pub(crate) fn cargo_command(context: &CargoContext) -> Command {
 pub(crate) fn target_cargo(context: &CargoContext, platform: &Platform) -> Command {
     let mut command = cargo_command(context);
     let key = target_rustflags_key(&context.target);
-    let mut flags = std::env::var_os(&key).unwrap_or_default();
+    let mut flags = match command.get_envs().find(|(name, _)| *name == key.as_str()) {
+        Some((_, value)) => value.unwrap_or_default().to_os_string(),
+        None => std::env::var_os(&key).unwrap_or_default(),
+    };
     if !flags.is_empty() {
         flags.push(" ");
     }
@@ -277,6 +283,29 @@ mod tests {
             firmware_elf_path(&selection),
             target_dir.join("debug/robot-image")
         );
+    }
+
+    #[test]
+    fn cargo_fixtures_use_their_own_compiler_flags() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "runner::tests::cargo_uses_the_platform_target_and_compiler_configuration",
+                "commands::tests::grouped_checks_preserve_distinct_execution_contexts_in_one_workspace",
+                "scope::tests::lint_checks_other_bins_in_the_selected_firmware_package",
+            ])
+            .env_remove("CARGO_ENCODED_RUSTFLAGS")
+            .env("RUSTFLAGS", "--cfg ambient_fixture_flag")
+            .env(
+                "CARGO_TARGET_THUMBV7EM_NONE_EABIHF_RUSTFLAGS",
+                "--polyfw-ambient-invalid-flag",
+            )
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("3 passed"), "{stdout}\n{stderr}");
     }
 
     #[test]
