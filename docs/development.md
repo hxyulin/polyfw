@@ -15,8 +15,8 @@ rustup target add thumbv7em-none-eabihf
 just check
 ```
 
-`just check` checks Rust formatting, runs Clippy for all targets with warnings denied, runs the
-Rust tests, and builds a release executable.
+`just check` checks Rust formatting, runs Clippy for all targets with warnings denied, and runs
+the Rust tests.
 
 Use `just --list` for repository recipes. `just fix` formats source and applies Clippy fixes;
 review those changes before committing. The Rust minimum in `Cargo.toml` is the supported compiler
@@ -180,8 +180,9 @@ inherits the caller's network settings. With dependencies cached and the target 
 
 ## Understand repository automation
 
-CI runs `just check` on pushes to `main` and non-draft pull requests, skipping Markdown-only
-changes. Releases run the same checks before packaging and publishing.
+CI runs `just check` followed by `cargo build --locked --release` on pushes to `main` and non-draft
+pull requests, skipping Markdown-only changes. Tagged releases invoke the same workflow before
+building the native release binaries.
 
 For publishing credentials, stable/prerelease tags, binary targets and retry rules, follow
 [Releasing](releasing.md).

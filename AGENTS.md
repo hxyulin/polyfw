@@ -18,7 +18,7 @@ toolchain and fixture setup.
 
 | Command | Purpose |
 | --- | --- |
-| `just check` | Check formatting, Clippy, tests and the release build |
+| `just check` | Run formatting checks, Clippy and tests |
 | `just fix` | Rewrite sources with formatting and Clippy fixes; review the diff |
 | `just schema` | Regenerate `assets/polyfw.schema.json` after model/schema or package-version changes; commit the result |
 | `cargo test --locked cli::tests` | Run focused parser tests; replace the test-name filter as needed |
