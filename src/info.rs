@@ -50,6 +50,7 @@ pub(crate) struct Firmware {
 
 #[derive(Serialize)]
 pub(crate) struct Artifact {
+    #[serde(serialize_with = "crate::profile::serialize")]
     pub(crate) profile: Profile,
     pub(crate) path: PathBuf,
     pub(crate) exists: bool,

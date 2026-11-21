@@ -51,13 +51,18 @@ pub struct Project {
 impl Project {
     /// Loads the project in the nearest directory at or above `start` that has a `polyfw.toml`.
     ///
-    /// A relative `start` resolves against the current directory.
+    /// A relative `start` resolves against the current directory. Symbolic links and `..`
+    /// components resolve before the search, so it walks the ancestors of the real directory.
     ///
     /// # Errors
     ///
-    /// Fails if no ancestor has a `polyfw.toml`, or if loading fails as in [`Project::open`].
+    /// Fails if `start` does not exist, if no ancestor has a `polyfw.toml`, or if loading
+    /// fails as in [`Project::open`].
     pub fn discover(start: impl AsRef<Path>) -> Result<Self, Error> {
-        let start = std::path::absolute(start.as_ref()).map_err(boxed)?;
+        let start = start.as_ref();
+        let start = start.canonicalize().map_err(|error| {
+            Error(format!("could not resolve {}: {error}", start.display()).into())
+        })?;
         Self::load(registry::project_root(None, &start)?)
     }
 
@@ -70,7 +75,7 @@ impl Project {
     /// Fails if `root` is not a directory, if `polyfw.toml` is missing, invalid or requires
     /// a newer polyfw, or if Cargo cannot resolve a registered firmware.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, Error> {
-        let root = std::path::absolute(root.as_ref()).map_err(boxed)?;
+        let root = std::path::absolute(root.as_ref()).map_err(|error| Error(Box::new(error)))?;
         Self::load(registry::project_root(Some(&root), &root)?)
     }
 
@@ -153,19 +158,25 @@ impl Project {
     ///
     /// # Errors
     ///
-    /// Fails if an existing file cannot be removed. Every file is attempted first.
+    /// Fails if the selection lock cannot be taken or an existing file cannot be removed.
+    /// Every file is attempted, and the error names each one that could not be removed.
     pub fn clear_selection(&self) -> Result<(), Error> {
-        let mut first_error = None;
-        for (path, result) in self.context.clear_selection() {
-            if let Err(error) = result
-                && error.kind() != ErrorKind::NotFound
-            {
-                first_error.get_or_insert_with(|| {
-                    Error(format!("could not remove {path}: {error}").into())
-                });
-            }
+        let failures: Vec<String> = self
+            .context
+            .clear_selection()?
+            .into_iter()
+            .filter_map(|(path, result)| match result {
+                Err(error) if error.kind() != ErrorKind::NotFound => {
+                    Some(format!("could not remove {path}: {error}"))
+                }
+                _ => None,
+            })
+            .collect();
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(Error(failures.join("; ").into()))
         }
-        first_error.map_or(Ok(()), Err)
     }
 }
 
@@ -319,10 +330,6 @@ impl Firmware {
             ..self.selection.clone()
         }
     }
-}
-
-fn boxed(error: std::io::Error) -> Error {
-    Error(Box::new(error))
 }
 
 const _: () = {

@@ -33,6 +33,23 @@ pkg-fmt = "zip"
 name = "polyfw"
 required-features = ["cli"]
 
+# These tests run the polyfw executable.
+[[test]]
+name = "examples"
+required-features = ["cli"]
+
+[[test]]
+name = "platforms"
+required-features = ["cli"]
+
+[[test]]
+name = "project_root"
+required-features = ["cli"]
+
+[[test]]
+name = "standalone"
+required-features = ["cli"]
+
 [features]
 default = ["cli"]
 # The polyfw executable and its terminal interface. Library users can disable it.

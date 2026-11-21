@@ -3,33 +3,63 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use polyfw::{Profile, Project};
 
+#[path = "support/cargo_env.rs"]
+mod cargo_env;
+
+/// Set in the child process that runs a test in an isolated Cargo environment.
+const ISOLATED: &str = "POLYFW_LIBRARY_TEST_ISOLATED";
+
+/// Runs `test` in a child test process without ambient Cargo flags, target or output
+/// directories, since the library runs Cargo with the caller's environment. Returns false
+/// in the parent, which only checks the child's result.
+fn in_isolated_cargo_environment(test: &str) -> bool {
+    if std::env::var_os(ISOLATED).is_some() {
+        return true;
+    }
+    let output =
+        cargo_env::isolate_cargo_environment(Command::new(std::env::current_exe().unwrap()))
+            .args(["--exact", test, "--test-threads=1"])
+            .env(ISOLATED, "1")
+            .output()
+            .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+    false
+}
+
+/// A copy of an example project at `root`, inside an otherwise empty directory.
 struct Example {
+    outer: PathBuf,
     root: PathBuf,
 }
 
 impl Example {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir()
+        let outer = std::env::temp_dir()
             .canonicalize()
             .unwrap()
             .join(format!("polyfw-library-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outer);
+        let root = outer.join("project");
         copy_project(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("examples")
                 .join(name),
             &root,
         );
-        Self { root }
+        Self { outer, root }
     }
 }
 
 impl Drop for Example {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        let _ = fs::remove_dir_all(&self.outer);
     }
 }
 
@@ -54,6 +84,11 @@ fn copy_project(source: &Path, destination: &Path) {
 
 #[test]
 fn a_project_reports_firmwares_selection_and_a_buildable_command() {
+    if !in_isolated_cargo_environment(
+        "a_project_reports_firmwares_selection_and_a_buildable_command",
+    ) {
+        return;
+    }
     let example = Example::new("multi-firmware");
     let project = Project::discover(example.root.join("firmwares/led-demo/src")).unwrap();
     assert_eq!(project.root(), example.root);
@@ -123,6 +158,46 @@ fn a_project_reports_firmwares_selection_and_a_buildable_command() {
     );
     // ELF files start with 0x7f followed by "ELF".
     assert_eq!(&fs::read(&elf).unwrap()[..4], b"\x7fELF");
+}
+
+#[test]
+fn clearing_a_selection_reports_every_file_it_cannot_remove() {
+    if !in_isolated_cargo_environment("clearing_a_selection_reports_every_file_it_cannot_remove") {
+        return;
+    }
+    let example = Example::new("multi-firmware");
+    let config = example.root.join("polyfw.toml");
+    let source = fs::read_to_string(&config).unwrap();
+    fs::write(&config, source.replace("enabled = false", "enabled = true")).unwrap();
+    let project = Project::open(&example.root).unwrap();
+    project.save_selection("led-demo", None).unwrap();
+
+    let files = [".vscode/launch.json", ".polyfw-state/selected"];
+    for file in files {
+        let path = example.root.join(file);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+    }
+    let error = project.clear_selection().unwrap_err().to_string();
+    for file in files {
+        assert!(error.contains(file), "{error}");
+    }
+}
+
+#[test]
+fn discovery_resolves_parent_components_before_searching() {
+    if !in_isolated_cargo_environment("discovery_resolves_parent_components_before_searching") {
+        return;
+    }
+    let example = Example::new("multi-firmware");
+    let project = Project::discover(example.root.join("firmwares/..")).unwrap();
+    assert_eq!(project.root(), example.root);
+    // `project/..` is the outer directory, which has no polyfw.toml above it.
+    let error = Project::discover(example.root.join("..")).unwrap_err();
+    assert!(
+        error.to_string().contains("no polyfw.toml found"),
+        "{error}"
+    );
 }
 
 #[test]

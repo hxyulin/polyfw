@@ -122,7 +122,7 @@ sessions. Disable default features to leave out the executable's dependencies:
 
 ```toml
 [dependencies]
-polyfw = { version = "0.2", default-features = false }
+polyfw = { version = "0.3", default-features = false }
 ```
 
 ```rust

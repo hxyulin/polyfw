@@ -350,9 +350,6 @@ fn canonical(path: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::process::Command;
-
-    use clap::ColorChoice;
 
     use super::*;
 
@@ -462,9 +459,26 @@ mod tests {
         fs::remove_dir_all(context.root).unwrap();
         fs::remove_dir_all(external).unwrap();
     }
-    use crate::cli::{FirmwareArgs, Task};
-    use crate::commands;
-    use crate::ui::Ui;
+    /// Runs `polyfw verify one` through the CLI command layer.
+    #[cfg(feature = "cli")]
+    fn verify_one(context: Context) {
+        use clap::ColorChoice;
+
+        use crate::cli::{FirmwareArgs, Task};
+        use crate::commands;
+        use crate::ui::Ui;
+
+        let _ = commands::run(
+            context,
+            Task::Verify(FirmwareArgs {
+                firmware: Some("one".into()),
+                select: false,
+                all_firmwares: false,
+            }),
+            &Ui::new(ColorChoice::Never),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn a_firmware_scope_follows_all_dependency_kinds_and_keeps_platform_uses_separate() {
@@ -556,7 +570,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn lint_checks_other_bins_in_the_selected_firmware_package() {
+        use std::process::Command;
+
+        use clap::ColorChoice;
+
+        use crate::cli::{FirmwareArgs, Task};
+        use crate::commands;
+        use crate::ui::Ui;
+
         const MODE: &str = "FLEET_XTASK_OTHER_BIN_CHILD";
         if std::env::var_os(MODE).is_none() {
             let output = Command::new(std::env::current_exe().unwrap())
@@ -604,19 +627,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn a_firmware_can_verify_with_std_helpers_without_checking_unrelated_packages() {
         let context = fixture("verify");
         let root = context.root.clone();
-        let _ = commands::run(
-            context,
-            Task::Verify(FirmwareArgs {
-                firmware: Some("one".into()),
-                select: false,
-                all_firmwares: false,
-            }),
-            &Ui::new(ColorChoice::Never),
-        )
-        .unwrap();
+        verify_one(context);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -826,16 +841,8 @@ mod tests {
             1
         );
         let root = context.root.clone();
-        let _ = commands::run(
-            context,
-            Task::Verify(FirmwareArgs {
-                firmware: Some("one".into()),
-                select: false,
-                all_firmwares: false,
-            }),
-            &Ui::new(ColorChoice::Never),
-        )
-        .unwrap();
+        #[cfg(feature = "cli")]
+        verify_one(context);
         fs::remove_dir_all(root).unwrap();
     }
 

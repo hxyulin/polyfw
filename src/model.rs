@@ -248,7 +248,11 @@ pub(crate) struct Selection {
 #[serde(deny_unknown_fields)]
 pub(crate) struct SavedSelection {
     pub(crate) firmware: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::profile::optional"
+    )]
     pub(crate) profile: Option<Profile>,
 }
 

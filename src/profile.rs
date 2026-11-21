@@ -1,14 +1,13 @@
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serializer};
 
 /// A Cargo profile name, such as `dev`, `release` or a custom profile.
 ///
 /// Parse one with [`str::parse`]. Names contain only ASCII letters, digits, `_` and `-`,
 /// so a profile directory cannot leave the target directory.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(try_from = "String")]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Profile(String);
 
 impl Profile {
@@ -66,6 +65,38 @@ impl TryFrom<String> for Profile {
             return Err(ParseProfileError(()));
         }
         Ok(Self(name))
+    }
+}
+
+// State files and reports store a profile as its name. These helpers keep that form private,
+// so the public type makes no serialization promise.
+pub(crate) fn serialize<S: Serializer>(
+    profile: &Profile,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(profile.name())
+}
+
+pub(crate) mod optional {
+    use super::*;
+
+    pub(crate) fn serialize<S: Serializer>(
+        profile: &Option<Profile>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match profile {
+            Some(profile) => serializer.serialize_some(profile.name()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Profile>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(Profile::try_from)
+            .transpose()
+            .map_err(serde::de::Error::custom)
     }
 }
 

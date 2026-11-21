@@ -155,6 +155,7 @@ mod tests {
     use crate::model::Firmware;
 
     #[test]
+    #[cfg(feature = "cli")]
     fn temporary_projects_use_the_project_toolchain_with_an_unusable_ancestor() {
         let root =
             std::env::temp_dir().join(format!("polyfw-fixture-ancestor-{}", std::process::id()));
@@ -233,6 +234,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn cargo_fixtures_use_their_own_compiler_flags() {
         let output = Command::new(std::env::current_exe().unwrap())
             .args([
